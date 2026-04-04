@@ -52,19 +52,20 @@ python tests/test_gpu_models.py
 ## パイプライン実行
 
 ```bash
-# フルパイプライン（1000アセット生成）
-python scripts/run_pipeline.py --n-assets 1000
+# フルパイプライン（全ステップ順次実行）
+python scripts/run_pipeline.py
 
 # 特定ステップのみ実行
-python scripts/run_pipeline.py --step image_generation
+python scripts/run_pipeline.py --steps prompt image image_qa
 
-# 中断再開
-python scripts/run_pipeline.py --resume
+# 中断再開なし（全件再実行）
+python scripts/run_pipeline.py --no-resume
 
-# 実行計画の確認（dry-run）
-python scripts/run_pipeline.py --n-assets 1000 --dry-run
+# 個別ステップ実行
+python scripts/run_step.py --step physics
 
-# 多様性レポート生成
+# 多様性レポートのみ生成
+python scripts/generate_report.py --no-clip
 python scripts/generate_report.py --assets-dir outputs/assets_final/
 ```
 
@@ -107,11 +108,11 @@ Step 6: 多様性評価      (OpenCLIP + Vendi Score)
 | 3 | T-3.1 3D 生成エンジン | ✅ | — |
 | 3 | T-3.2 メッシュ品質チェック | ✅ | [docs/t32_mesh_qa.md](docs/t32_mesh_qa.md) |
 | 3 | T-3.3 VLM マルチビュー検品 | ✅ | [docs/t33_mesh_vlm_qa.md](docs/t33_mesh_vlm_qa.md) |
-| 4 | T-4.1 物理プロパティ付与 | ⬜ | — |
-| 4 | T-4.2 シミュレータエクスポート | ⬜ | — |
-| 5 | T-5.1 多様性評価 | ⬜ | — |
-| 6 | T-6.1 パイプライン統合 | ⬜ | — |
-| 6 | T-6.2 CLI スクリプト | ⬜ | — |
+| 4 | T-4.1 物理プロパティ付与 | ✅ | — |
+| 4 | T-4.2 シミュレータエクスポート | ✅ | — |
+| 5 | T-5.1 多様性評価 | ✅ | — |
+| 6 | T-6.1 パイプライン統合 | ✅ | — |
+| 6 | T-6.2 CLI スクリプト | ✅ | — |
 
 ---
 

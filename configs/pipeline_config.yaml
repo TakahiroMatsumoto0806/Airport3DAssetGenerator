@@ -1,0 +1,172 @@
+# =============================================================================
+# AL3DG パイプライン設定
+# T-6.1
+# =============================================================================
+# DGX Spark (Grace Blackwell GB10, 128GB 統合メモリ) 向けデフォルト設定
+# 各ステップは逐次実行・モデルは1つずつロード
+# =============================================================================
+
+# ---- 基本設定 ----
+project:
+  name: "al3dg"
+  output_dir: "outputs"
+  seed: 42
+
+# ---- 生成数 ----
+generation:
+  # 目標生成数（最終的に assets_final に残るアセット数）
+  target_count: 1000
+  # 各ステップでの生成倍率（歩留まりを考慮）
+  image_batch_size: 4          # 一度に生成する画像数
+  prompt_count_per_category: 10  # カテゴリあたりのプロンプト数
+
+# ---- ステップ有効化フラグ ----
+steps:
+  t1_prompt_generation: true
+  t2_image_generation: true
+  t2_image_qa: true
+  t3_mesh_generation: true
+  t3_mesh_qa: true
+  t3_mesh_vlm_qa: true
+  t4_physics: true
+  t4_sim_export: true
+  t5_diversity_report: true
+
+# ---- 出力ディレクトリ ----
+paths:
+  prompts_dir: "outputs/prompts"
+  images_dir: "outputs/images"
+  images_approved_dir: "outputs/images_approved"
+  meshes_raw_dir: "outputs/meshes_raw"
+  meshes_approved_dir: "outputs/meshes_approved"
+  assets_final_dir: "outputs/assets_final"
+  reports_dir: "outputs/reports"
+
+# ---- モデル設定 ----
+models:
+  # FLUX.1-schnell (Text-to-Image)
+  flux:
+    model_id: "black-forest-labs/FLUX.1-schnell"
+    model_dir: "~/models/FLUX.1-schnell"
+    device: "cuda"
+    dtype: "bfloat16"
+    num_inference_steps: 4
+
+  # TRELLIS.2 (Image-to-3D)
+  trellis:
+    model_dir: "~/models/TRELLIS-image-large"
+    # TRELLIS.2 は別 conda 環境で実行すること
+    # conda activate trellis && python scripts/run_step.py --step mesh_generation
+
+  # Qwen3-VL-32B (VLM/LLM) — vLLM サーバーとして使用
+  vlm:
+    base_url: "http://localhost:8000/v1"
+    model_name: "Qwen/Qwen3-VL-32B-Instruct"
+    temperature: 0.1
+    max_tokens: 2048
+    # 起動コマンド:
+    #   vllm serve Qwen/Qwen3-VL-32B-Instruct --dtype bfloat16
+
+  # OpenCLIP (多様性評価)
+  clip:
+    model_name: "ViT-L-14"
+    pretrained: "datacomp_xl_s13b_b90k"
+    device: "cuda"
+
+# ---- T-1.2: プロンプト生成 ----
+prompt_generation:
+  configs_dir: "configs"
+  output_file: "outputs/prompts/prompts.json"
+  seed: 42
+
+# ---- T-2.1: 画像生成 ----
+image_generation:
+  output_dir: "outputs/images"
+  width: 1024
+  height: 1024
+  num_inference_steps: 4
+  guidance_scale: 0.0
+  resume: true
+
+# ---- T-2.2: 画像 QA ----
+image_qa:
+  output_dir: "outputs/images_approved"
+  thresholds:
+    realism: 7
+    integrity: 7
+  thinking_mode: false   # /no_think
+  batch_size: 16
+  resume: true
+
+# ---- T-3.1: メッシュ生成 ----
+mesh_generation:
+  output_dir: "outputs/meshes_raw"
+  seed: 42
+  resume: true
+
+# ---- T-3.2: メッシュ QA ----
+mesh_qa:
+  thresholds:
+    min_faces: 5000
+    max_faces: 100000
+    max_aspect_ratio: 20.0
+  repair: true
+  output_dir: "outputs/meshes_approved"
+  resume: true
+
+# ---- T-3.3: VLM マルチビュー QA ----
+mesh_vlm_qa:
+  output_dir: "outputs/meshes_approved"
+  render_dir: "outputs/renders"
+  thresholds:
+    geometry: 7
+    texture: 6
+  thinking_mode: true    # /think
+  azimuths: [0, 90, 180, 270]
+  render_size: [512, 512]
+  resume: true
+
+# ---- T-4.1: 物理プロパティ付与 ----
+physics:
+  output_dir: "outputs/assets_final"
+  coacd_threshold: 0.08
+  max_convex_hulls: 16
+  miniature: true
+  resume: true
+
+# ---- T-4.2: シミュレータエクスポート ----
+sim_export:
+  output_dir: "outputs/assets_final"
+  format: "both"    # "mjcf" | "usd" | "both"
+  resume: true
+
+# ---- T-5.1: 多様性評価 ----
+diversity:
+  output_dir: "outputs/reports"
+  near_dup_threshold: 0.95
+  embed_batch_size: 32
+  size_realism_refs:
+    hard_suitcase:
+      min_mm: 30.0
+      max_mm: 120.0
+    soft_suitcase:
+      min_mm: 25.0
+      max_mm: 110.0
+    backpack:
+      min_mm: 20.0
+      max_mm: 100.0
+    duffel_bag:
+      min_mm: 25.0
+      max_mm: 110.0
+    tote_bag:
+      min_mm: 15.0
+      max_mm: 80.0
+    briefcase:
+      min_mm: 20.0
+      max_mm: 70.0
+    cardboard_box:
+      min_mm: 20.0
+      max_mm: 120.0
+    hard_case:
+      min_mm: 20.0
+      max_mm: 100.0
