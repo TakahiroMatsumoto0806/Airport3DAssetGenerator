@@ -1,0 +1,103 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "al3dg"
+version = "0.1.0"
+description = "Airport Luggage 3D Asset Generator — Physical AI training data pipeline on DGX Spark"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+
+dependencies = [
+    # ---- 画像生成 ----
+    "diffusers>=0.30.0",
+    "transformers>=4.44.0",
+    "accelerate>=0.33.0",
+    "sentencepiece>=0.2.0",
+    "tokenizers>=0.19.0",
+
+    # ---- PyTorch (Blackwell / CUDA 12.x 対応は setup_environment.sh でインストール) ----
+    # pip install torch --index-url https://download.pytorch.org/whl/cu124
+    # ここでは最低バージョン宣言のみ
+    "torch>=2.4.0",
+    "torchvision>=0.19.0",
+
+    # ---- vLLM (Qwen3-VL-32B-Instruct サーバー) ----
+    # モデルID: Qwen/Qwen3-VL-32B-Instruct
+    "vllm>=0.6.0",
+    "openai>=1.40.0",          # vLLM OpenAI互換クライアント
+
+    # ---- 3D 生成 (TRELLIS.2-4B) ----
+    # !! pip 配布なし。別途インストールが必要 !!
+    #   git clone https://github.com/microsoft/TRELLIS.2 ~/trellis2
+    #   cd ~/trellis2
+    #   . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel
+    # モデルウェイト: huggingface-cli download microsoft/TRELLIS.2-4B
+    # setup.sh が conda 環境 "trellis2" を作成する。
+
+    # ---- 3D メッシュ処理 ----
+    "trimesh>=4.4.0",
+    "open3d>=0.18.0",
+    "pyglet>=2.0.0",           # trimesh 依存
+
+    # ---- レンダリング (headless) ----
+    "pyrender>=0.1.45",
+    "PyOpenGL>=3.1.0",
+    "Pillow>=10.0.0",
+    "imageio>=2.34.0",
+
+    # ---- 凸分解 (CoACD) ----
+    "coacd>=1.0.0",
+
+    # ---- 多様性評価 ----
+    "open-clip-torch>=2.26.0",
+    "scikit-learn>=1.5.0",     # t-SNE / UMAP は umap-learn で別途
+    "numpy>=1.26.0",
+
+    # ---- 設定管理 ----
+    "hydra-core>=1.3.0",
+    "omegaconf>=2.3.0",
+
+    # ---- ログ ----
+    "loguru>=0.7.0",
+
+    # ---- 可視化・レポート ----
+    "matplotlib>=3.9.0",
+    "plotly>=5.23.0",
+    "umap-learn>=0.5.6",
+
+    # ---- ユーティリティ ----
+    "tqdm>=4.66.0",
+    "rich>=13.7.0",
+    "pydantic>=2.8.0",
+    "huggingface-hub>=0.24.0",
+    "safetensors>=0.4.0",
+    "einops>=0.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+al3dg-run = "scripts.run_pipeline:main"
+al3dg-report = "scripts.generate_report:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

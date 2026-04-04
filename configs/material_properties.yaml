@@ -1,0 +1,243 @@
+# =============================================================================
+# 材質物理プロパティ定義
+# AL3DG — T-1.1
+# =============================================================================
+# 各材質の物理シミュレーション用プロパティ
+# MuJoCo / Isaac Sim での使用を想定
+#
+# 各項目:
+#   density_kg_m3:        密度 (kg/m³)
+#   static_friction:      静止摩擦係数 (荷物コンベアベルト面との接触)
+#   dynamic_friction:     動摩擦係数
+#   restitution:          反発係数 (0=完全非弾性, 1=完全弾性)
+#   randomize_range:      各プロパティの±ランダム変動率 (デフォルト 0.15 = ±15%)
+#
+# 参考値出典:
+#   - Engineering Toolbox (摩擦係数)
+#   - MuJoCo default material properties
+#   - Isaac Sim Physics Material Reference
+# =============================================================================
+
+# ---- デフォルト設定 ----
+defaults:
+  randomize_range: 0.15   # ±15% のランダム変動（仕様書記載値）
+
+# ---- 材質ごとのプロパティ ----
+materials:
+
+  # ---------- ハードプラスチック系 ----------
+  polycarbonate:
+    display_name: "ポリカーボネート"
+    density_kg_m3: 1200
+    density_range: [1150, 1250]
+    static_friction: 0.35
+    dynamic_friction: 0.30
+    restitution: 0.20
+    randomize_range: 0.15
+    notes: "ハードスーツケース主素材。軽量で高衝撃耐性。"
+
+  abs_plastic:
+    display_name: "ABS樹脂"
+    density_kg_m3: 1050
+    density_range: [1000, 1100]
+    static_friction: 0.40
+    dynamic_friction: 0.35
+    restitution: 0.15
+    randomize_range: 0.15
+    notes: "ハードケース・機材ケース等。やや重い。"
+
+  polypropylene:
+    display_name: "ポリプロピレン"
+    density_kg_m3: 920
+    density_range: [880, 960]
+    static_friction: 0.30
+    dynamic_friction: 0.25
+    restitution: 0.18
+    randomize_range: 0.15
+    notes: "軽量ケース類。最軽量プラスチックの一つ。"
+
+  aluminum:
+    display_name: "アルミニウム"
+    density_kg_m3: 2700
+    density_range: [2650, 2750]
+    static_friction: 0.45
+    dynamic_friction: 0.40
+    restitution: 0.10
+    randomize_range: 0.10   # 金属は変動小さめ
+    notes: "アルミスーツケース・アタッシェケース。重いが剛性高い。"
+
+  fiberglass:
+    display_name: "グラスファイバー"
+    density_kg_m3: 1800
+    density_range: [1700, 1900]
+    static_friction: 0.38
+    dynamic_friction: 0.32
+    restitution: 0.12
+    randomize_range: 0.12
+    notes: "楽器ケース等。高剛性・軽量。"
+
+  # ---------- 軟質素材・ファブリック系 ----------
+  nylon:
+    display_name: "ナイロン"
+    density_kg_m3: 500   # バッグとして中身込みの実効密度（生地+構造）
+    density_range: [400, 620]
+    static_friction: 0.55
+    dynamic_friction: 0.45
+    restitution: 0.05
+    randomize_range: 0.15
+    notes: "バックパック・ダッフルバッグ等。表面は適度な摩擦。"
+
+  polyester:
+    display_name: "ポリエステル"
+    density_kg_m3: 480
+    density_range: [380, 600]
+    static_friction: 0.52
+    dynamic_friction: 0.43
+    restitution: 0.05
+    randomize_range: 0.15
+    notes: "ソフトスーツケース・バッグ類。ナイロンより安価。"
+
+  canvas:
+    display_name: "キャンバス"
+    density_kg_m3: 550
+    density_range: [450, 680]
+    static_friction: 0.60
+    dynamic_friction: 0.50
+    restitution: 0.03
+    randomize_range: 0.15
+    notes: "トートバッグ・キャンバスバッグ。高摩擦。"
+
+  cordura:
+    display_name: "コーデュラ"
+    density_kg_m3: 520
+    density_range: [420, 640]
+    static_friction: 0.58
+    dynamic_friction: 0.48
+    restitution: 0.04
+    randomize_range: 0.15
+    notes: "高耐久バックパック用途。擦れに強い。"
+
+  nonwoven_fabric:
+    display_name: "不織布"
+    density_kg_m3: 300
+    density_range: [200, 400]
+    static_friction: 0.50
+    dynamic_friction: 0.42
+    restitution: 0.02
+    randomize_range: 0.20
+    notes: "エコバッグ等。軽量で変動が大きい。"
+
+  # ---------- レザー系 ----------
+  genuine_leather:
+    display_name: "本革"
+    density_kg_m3: 860
+    density_range: [800, 920]
+    static_friction: 0.50
+    dynamic_friction: 0.42
+    restitution: 0.08
+    randomize_range: 0.15
+    notes: "高級バッグ・ブリーフケース。適度な重量感。"
+
+  synthetic_leather:
+    display_name: "合成皮革（PUレザー）"
+    density_kg_m3: 700
+    density_range: [620, 780]
+    static_friction: 0.45
+    dynamic_friction: 0.38
+    restitution: 0.07
+    randomize_range: 0.15
+    notes: "ビーガンレザー製品。本革より軽い。"
+
+  # ---------- 紙・段ボール系 ----------
+  cardboard:
+    display_name: "段ボール"
+    density_kg_m3: 700   # 二重壁段ボール、箱の実効密度（内容物なし）
+    density_range: [500, 900]
+    static_friction: 0.50
+    dynamic_friction: 0.42
+    restitution: 0.02
+    randomize_range: 0.20   # 状態によって変動大
+    notes: >-
+      段ボール箱（空箱）。湿気・損傷で変動大。
+      内容物の質量は別途加算が必要。
+
+  # ---------- 金属・複合系 ----------
+  steel:
+    display_name: "スチール"
+    density_kg_m3: 7800
+    density_range: [7700, 7900]
+    static_friction: 0.55
+    dynamic_friction: 0.47
+    restitution: 0.12
+    randomize_range: 0.08
+    notes: "ベビーカーフレーム等の金属パーツ。"
+
+  # ---------- 複合材質（カテゴリ別デフォルト）----------
+  # 複数材質が混在するアイテム用の実効プロパティ
+  composite_hard_suitcase:
+    display_name: "ハードスーツケース（複合）"
+    density_kg_m3: 1100
+    density_range: [900, 1300]
+    static_friction: 0.38
+    dynamic_friction: 0.32
+    restitution: 0.18
+    randomize_range: 0.15
+    notes: "ポリカーボネート+フレーム+ホイール+ハンドルの複合実効値。"
+
+  composite_soft_suitcase:
+    display_name: "ソフトスーツケース（複合）"
+    density_kg_m3: 650
+    density_range: [500, 800]
+    static_friction: 0.50
+    dynamic_friction: 0.42
+    restitution: 0.06
+    randomize_range: 0.15
+    notes: "ファブリック+フレーム+ホイールの複合実効値。"
+
+  composite_backpack:
+    display_name: "バックパック（複合）"
+    density_kg_m3: 450
+    density_range: [350, 580]
+    static_friction: 0.55
+    dynamic_friction: 0.46
+    restitution: 0.04
+    randomize_range: 0.18
+    notes: "バックパックの実効値。内容物なし。"
+
+  composite_stroller:
+    display_name: "ベビーカー（複合）"
+    density_kg_m3: 1500
+    density_range: [1200, 1900]
+    static_friction: 0.40
+    dynamic_friction: 0.32
+    restitution: 0.10
+    randomize_range: 0.12
+    notes: "アルミ+プラスチック+ファブリックの複合。"
+
+# ---- luggage_categories.yaml との対応マッピング ----
+# カテゴリ -> デフォルト使用材質キー
+category_material_mapping:
+  hard_suitcase: composite_hard_suitcase
+  soft_suitcase: composite_soft_suitcase
+  backpack: composite_backpack
+  duffel_bag: nylon
+  tote_bag: canvas
+  briefcase: genuine_leather
+  cardboard_box: cardboard
+  hard_case: abs_plastic
+  golf_bag: nylon
+  ski_bag: nylon
+  stroller: composite_stroller
+  instrument_case: abs_plastic
+
+# ---- スケール正規化設定 ----
+# Franka グリッパー (最大開口 80mm) で把持可能なサイズへのスケール
+# miniature=True の場合に使用
+miniature_scale:
+  enabled: true
+  # 最大短辺が target_short_side_mm を超えないようスケール
+  target_short_side_mm: 60.0
+  # ただし最大長辺も max_long_side_mm 以下に収める
+  max_long_side_mm: 120.0
+  # アスペクト比は元のメッシュを維持
+  preserve_aspect_ratio: true

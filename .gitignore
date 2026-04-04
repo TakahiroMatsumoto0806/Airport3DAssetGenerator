@@ -1,0 +1,84 @@
+# =============================================================================
+# AL3DG .gitignore
+# =============================================================================
+
+# ---- 生成成果物 (大容量) ----
+# outputs/ 配下はすべて除外するが .gitkeep は保持してディレクトリ構造を記録する
+outputs/**
+!outputs/
+!outputs/**/
+!outputs/**/.gitkeep
+
+# ---- モデルウェイト ----
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.gguf
+*.onnx
+models/
+
+# ---- 3D アセットファイル ----
+*.glb
+*.obj
+*.mtl
+*.stl
+*.usd
+*.usda
+*.usdc
+*.usdz
+*.fbx
+*.ply
+*.gltf
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.env
+
+# ---- uv / pip ----
+.uv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ---- テスト / カバレッジ ----
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- ログ ----
+*.log
+logs/
+
+# ---- Hydra 出力 ----
+multirun/
+.hydra/
+
+# ---- 一時ファイル ----
+*.tmp
+*.temp
+tmp/
+temp/

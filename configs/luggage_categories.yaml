@@ -1,0 +1,327 @@
+# =============================================================================
+# 空港荷物カテゴリ定義
+# AL3DG — T-1.1
+# =============================================================================
+# 各カテゴリの構造:
+#   name_ja:   日本語名
+#   name_en:   英語名
+#   subcategories: サブカテゴリリスト
+#   size_range_cm: [W_min, W_max, D_min, D_max, H_min, H_max]  # 幅・奥行き・高さ
+#   typical_materials: 代表的な材質
+#   typical_colors: 代表的な色
+#   weight_range_kg: [min, max]
+# =============================================================================
+
+categories:
+
+  # ---------- スーツケース ----------
+  hard_suitcase:
+    name_ja: ハードスーツケース
+    name_en: hard-shell suitcase
+    subcategories:
+      - carry_on          # 機内持ち込み (S)
+      - medium_check_in   # 中型受託 (M)
+      - large_check_in    # 大型受託 (L)
+    size_range_cm:
+      carry_on:         [35, 40, 20, 25, 50, 56]
+      medium_check_in:  [42, 48, 25, 30, 62, 70]
+      large_check_in:   [50, 58, 28, 35, 72, 82]
+    typical_materials:
+      - polycarbonate
+      - abs_plastic
+      - aluminum
+    typical_colors:
+      - black
+      - navy
+      - silver
+      - red
+      - dark_gray
+      - white
+      - champagne_gold
+    weight_range_kg:
+      carry_on:         [2.0, 4.0]
+      medium_check_in:  [3.0, 5.5]
+      large_check_in:   [4.0, 7.0]
+
+  soft_suitcase:
+    name_ja: ソフトスーツケース
+    name_en: soft-shell suitcase
+    subcategories:
+      - carry_on
+      - medium_check_in
+      - large_check_in
+    size_range_cm:
+      carry_on:         [33, 40, 18, 24, 48, 56]
+      medium_check_in:  [40, 48, 22, 28, 60, 70]
+      large_check_in:   [48, 56, 26, 34, 70, 80]
+    typical_materials:
+      - nylon
+      - polyester
+      - canvas
+    typical_colors:
+      - black
+      - navy
+      - khaki
+      - brown
+      - gray
+      - burgundy
+      - olive
+    weight_range_kg:
+      carry_on:         [1.5, 3.5]
+      medium_check_in:  [2.5, 4.5]
+      large_check_in:   [3.0, 6.0]
+
+  # ---------- バッグ類 ----------
+  backpack:
+    name_ja: バックパック
+    name_en: backpack
+    subcategories:
+      - daypack           # 小型 (~20L)
+      - travel_pack       # 旅行用 (30–50L)
+      - hiking_pack       # 登山用 (50–80L)
+    size_range_cm:
+      daypack:      [25, 35, 12, 20, 35, 48]
+      travel_pack:  [28, 38, 18, 28, 50, 65]
+      hiking_pack:  [30, 40, 22, 32, 65, 80]
+    typical_materials:
+      - nylon
+      - polyester
+      - cordura
+      - canvas
+    typical_colors:
+      - black
+      - navy
+      - gray
+      - olive
+      - orange
+      - red
+      - khaki
+    weight_range_kg:
+      daypack:      [0.4, 1.2]
+      travel_pack:  [0.8, 2.0]
+      hiking_pack:  [1.2, 3.0]
+
+  duffel_bag:
+    name_ja: ダッフルバッグ
+    name_en: duffel bag
+    subcategories:
+      - small   # ~30L
+      - medium  # 30–60L
+      - large   # 60–100L
+    size_range_cm:
+      small:   [40, 50, 20, 28, 22, 30]
+      medium:  [50, 65, 25, 35, 28, 38]
+      large:   [65, 85, 32, 42, 35, 48]
+    typical_materials:
+      - nylon
+      - polyester
+      - canvas
+      - leather
+    typical_colors:
+      - black
+      - navy
+      - gray
+      - olive
+      - brown
+      - red
+    weight_range_kg:
+      small:   [0.4, 1.0]
+      medium:  [0.7, 1.8]
+      large:   [1.0, 2.5]
+
+  tote_bag:
+    name_ja: トートバッグ
+    name_en: tote bag
+    subcategories:
+      - canvas_tote
+      - leather_tote
+      - shopping_bag
+    size_range_cm:
+      canvas_tote:   [32, 45, 12, 18, 28, 40]
+      leather_tote:  [30, 42, 12, 18, 26, 38]
+      shopping_bag:  [28, 40, 10, 16, 30, 45]
+    typical_materials:
+      - canvas
+      - leather
+      - synthetic_leather
+      - nonwoven_fabric
+    typical_colors:
+      - natural_beige
+      - black
+      - navy
+      - white
+      - brown
+      - red
+    weight_range_kg:
+      canvas_tote:   [0.2, 0.6]
+      leather_tote:  [0.5, 1.5]
+      shopping_bag:  [0.1, 0.4]
+
+  briefcase:
+    name_ja: ブリーフケース
+    name_en: briefcase
+    subcategories:
+      - hard_briefcase
+      - soft_briefcase
+      - laptop_bag
+    size_range_cm:
+      hard_briefcase: [38, 46, 10, 16, 28, 36]
+      soft_briefcase: [36, 44, 8,  14, 26, 34]
+      laptop_bag:     [35, 42, 5,  10, 26, 32]
+    typical_materials:
+      - leather
+      - synthetic_leather
+      - nylon
+      - aluminum
+    typical_colors:
+      - black
+      - dark_brown
+      - tan
+      - gray
+      - navy
+    weight_range_kg:
+      hard_briefcase: [1.0, 3.0]
+      soft_briefcase: [0.5, 1.5]
+      laptop_bag:     [0.3, 1.0]
+
+  # ---------- 箱・ケース ----------
+  cardboard_box:
+    name_ja: 段ボール箱
+    name_en: cardboard box
+    subcategories:
+      - small_box   # ~30×30×30cm
+      - medium_box  # ~50×40×40cm
+      - large_box   # ~80×60×60cm
+    size_range_cm:
+      small_box:   [15, 35, 15, 35, 15, 35]
+      medium_box:  [35, 55, 30, 50, 30, 50]
+      large_box:   [55, 85, 45, 65, 45, 65]
+    typical_materials:
+      - cardboard
+    typical_colors:
+      - brown
+      - white
+    weight_range_kg:
+      small_box:   [0.1, 5.0]
+      medium_box:  [0.2, 15.0]
+      large_box:   [0.3, 30.0]
+
+  hard_case:
+    name_ja: ハードケース
+    name_en: hard case / equipment case
+    subcategories:
+      - pelican_style   # ラッチ付き防水ケース
+      - equipment_case  # 機材ケース
+    size_range_cm:
+      pelican_style:   [25, 60, 18, 45, 12, 30]
+      equipment_case:  [40, 80, 30, 60, 20, 50]
+    typical_materials:
+      - abs_plastic
+      - polypropylene
+      - aluminum
+    typical_colors:
+      - black
+      - olive
+      - yellow
+      - orange
+      - gray
+    weight_range_kg:
+      pelican_style:   [1.0, 4.0]
+      equipment_case:  [2.0, 10.0]
+
+  # ---------- 特殊荷物 ----------
+  golf_bag:
+    name_ja: ゴルフバッグ
+    name_en: golf bag
+    subcategories:
+      - stand_bag
+      - cart_bag
+      - travel_cover
+    size_range_cm:
+      stand_bag:    [20, 28, 20, 28, 85, 100]
+      cart_bag:     [22, 30, 22, 30, 90, 105]
+      travel_cover: [30, 38, 28, 36, 100, 130]
+    typical_materials:
+      - nylon
+      - polyester
+      - leather
+    typical_colors:
+      - black
+      - white
+      - navy
+      - red
+      - gray
+    weight_range_kg:
+      stand_bag:    [2.0, 4.0]
+      cart_bag:     [3.0, 6.0]
+      travel_cover: [3.0, 7.0]
+
+  ski_bag:
+    name_ja: スキーバッグ
+    name_en: ski bag
+    subcategories:
+      - ski_bag
+      - snowboard_bag
+    size_range_cm:
+      ski_bag:       [15, 22, 12, 18, 150, 200]
+      snowboard_bag: [20, 28, 12, 18, 150, 180]
+    typical_materials:
+      - nylon
+      - polyester
+    typical_colors:
+      - black
+      - gray
+      - blue
+      - red
+    weight_range_kg:
+      ski_bag:       [1.0, 3.0]
+      snowboard_bag: [1.0, 3.0]
+
+  stroller:
+    name_ja: ベビーカー
+    name_en: stroller / baby buggy
+    subcategories:
+      - compact_stroller
+      - full_size_stroller
+    size_range_cm:
+      compact_stroller:   [45, 55, 30, 40, 80, 100]
+      full_size_stroller: [55, 65, 40, 55, 90, 110]
+    typical_materials:
+      - aluminum
+      - steel
+      - plastic
+      - fabric
+    typical_colors:
+      - black
+      - gray
+      - navy
+      - red
+      - beige
+    weight_range_kg:
+      compact_stroller:   [4.0, 8.0]
+      full_size_stroller: [8.0, 15.0]
+
+  instrument_case:
+    name_ja: 楽器ケース
+    name_en: instrument case
+    subcategories:
+      - guitar_case
+      - violin_case
+      - keyboard_bag
+    size_range_cm:
+      guitar_case:   [40, 48, 14, 20, 100, 115]
+      violin_case:   [24, 30, 8,  14, 68,  78]
+      keyboard_bag:  [18, 22, 8,  12, 80,  130]
+    typical_materials:
+      - abs_plastic
+      - fiberglass
+      - nylon
+      - leather
+    typical_colors:
+      - black
+      - brown
+      - gray
+    weight_range_kg:
+      guitar_case:   [2.0, 5.0]
+      violin_case:   [0.8, 2.5]
+      keyboard_bag:  [1.0, 3.0]

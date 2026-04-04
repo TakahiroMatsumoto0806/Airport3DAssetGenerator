@@ -1,0 +1,340 @@
+# =============================================================================
+# プロンプトテンプレート定義
+# AL3DG — T-1.1
+# =============================================================================
+# 属性軸: タイプ / 色 / 材質 / テクスチャ / スタイル / 状態
+# FLUX.1-schnell 向け英語プロンプト
+# =============================================================================
+
+# ---- 固定部分（全プロンプト共通）----
+fixed:
+  background: "on pure white background"
+  lighting: "studio lighting, soft shadows"
+  view: "product photography, slightly elevated angle"
+  quality: "high quality, sharp focus, photorealistic"
+  # FLUX.1-schnell は guidance_scale=0.0 のため、シンプルで明確な記述が効果的
+  negative_hint: ""  # FLUX.1-schnell は negative prompt 非対応
+
+# ---- 属性軸バリエーション ----
+attributes:
+
+  # -- タイプ（luggage_categories.yaml と対応）--
+  type:
+    hard_suitcase:
+      carry_on:
+        - "small hard-shell carry-on suitcase with spinner wheels and retractable handle"
+        - "compact hard-shell cabin luggage with four wheels"
+        - "hard-shell carry-on trolley with TSA lock"
+      medium_check_in:
+        - "medium hard-shell checked suitcase with four spinner wheels"
+        - "hard-shell travel suitcase with expandable zipper"
+        - "mid-size polycarbonate suitcase with telescoping handle"
+      large_check_in:
+        - "large hard-shell checked luggage with four wheels"
+        - "extra-large hard-shell suitcase with double spinner wheels"
+        - "oversized hard-shell travel trunk with combination lock"
+    soft_suitcase:
+      carry_on:
+        - "soft-shell carry-on luggage with front pockets"
+        - "fabric cabin trolley bag with spinner wheels"
+      medium_check_in:
+        - "medium soft-shell suitcase with multiple compartments"
+        - "expandable soft fabric checked luggage"
+      large_check_in:
+        - "large soft-shell checked bag with reinforced corners"
+        - "oversized fabric suitcase with compression straps"
+    backpack:
+      daypack:
+        - "small travel daypack with laptop compartment"
+        - "compact urban backpack with organizer pockets"
+      travel_pack:
+        - "large travel backpack with hip belt and rain cover"
+        - "rolling travel backpack convertible with wheels"
+      hiking_pack:
+        - "large trekking backpack with external frame"
+        - "mountaineering backpack with ice axe loops"
+    duffel_bag:
+      small:
+        - "small gym duffel bag with shoe compartment"
+        - "compact weekend duffel with shoulder strap"
+      medium:
+        - "medium travel duffel bag with wheels and telescoping handle"
+        - "cylindrical duffel bag with multiple handles"
+      large:
+        - "large wheeled duffel bag for sports equipment"
+        - "oversized canvas duffel with padded straps"
+    tote_bag:
+      canvas_tote:
+        - "large canvas tote bag with interior pockets"
+        - "natural canvas shopping tote with zipper top"
+      leather_tote:
+        - "structured leather tote bag with metal hardware"
+        - "soft leather shoulder tote with open top"
+      shopping_bag:
+        - "reusable shopping bag with reinforced handles"
+        - "folded nonwoven shopping bag"
+    briefcase:
+      hard_briefcase:
+        - "classic hard-shell briefcase with combination locks"
+        - "vintage aluminum attaché case"
+      soft_briefcase:
+        - "soft leather briefcase with shoulder strap"
+        - "expandable business bag with laptop sleeve"
+      laptop_bag:
+        - "slim laptop messenger bag with padded compartment"
+        - "minimalist laptop sleeve with handles"
+    cardboard_box:
+      small_box:
+        - "small sealed cardboard shipping box with tape"
+        - "compact brown corrugated box"
+      medium_box:
+        - "medium brown cardboard box with fragile sticker"
+        - "double-wall corrugated shipping box"
+      large_box:
+        - "large brown cardboard moving box with handles"
+        - "oversized corrugated cardboard freight box"
+    hard_case:
+      pelican_style:
+        - "waterproof hard plastic case with foam interior and latches"
+        - "rugged protective equipment case with pressure valve"
+      equipment_case:
+        - "large aluminum equipment flight case with wheels"
+        - "road case with butterfly latches and stackable design"
+    golf_bag:
+      stand_bag:
+        - "lightweight golf stand bag with dual strap"
+        - "golf carry bag with tripod stand"
+      cart_bag:
+        - "full-size golf cart bag with multiple dividers"
+        - "14-way cart bag with rain hood"
+      travel_cover:
+        - "golf travel bag with wheels and padded top"
+        - "hard-shell golf travel case"
+    stroller:
+      compact_stroller:
+        - "compact foldable baby stroller with canopy"
+        - "lightweight umbrella stroller in folded position"
+      full_size_stroller:
+        - "full-size baby pram with large wheels and storage basket"
+        - "travel system stroller with reversible seat"
+    instrument_case:
+      guitar_case:
+        - "hard-shell guitar case with velvet interior"
+        - "semi-rigid acoustic guitar gig bag"
+      violin_case:
+        - "hard-shell violin case with bow holder"
+        - "rectangular violin case with combination lock"
+
+  # -- 色 --
+  color:
+    neutrals:
+      - "black"
+      - "matte black"
+      - "glossy black"
+      - "charcoal gray"
+      - "dark gray"
+      - "light gray"
+      - "silver"
+      - "white"
+      - "off-white"
+      - "beige"
+      - "cream"
+    blues:
+      - "navy blue"
+      - "midnight blue"
+      - "cobalt blue"
+      - "sky blue"
+      - "teal"
+      - "dark teal"
+    reds_pinks:
+      - "red"
+      - "crimson"
+      - "burgundy"
+      - "rose gold"
+      - "coral"
+      - "hot pink"
+    greens:
+      - "olive green"
+      - "army green"
+      - "forest green"
+      - "mint green"
+    browns_golds:
+      - "tan"
+      - "brown"
+      - "dark brown"
+      - "camel"
+      - "champagne gold"
+      - "bronze"
+    others:
+      - "purple"
+      - "lavender"
+      - "orange"
+      - "yellow"
+
+  # -- 材質（見た目の記述、material_properties.yaml と対応）--
+  material:
+    hard_plastics:
+      polycarbonate:
+        - "polycarbonate shell"
+        - "hard polycarbonate surface"
+        - "semi-gloss polycarbonate"
+      abs_plastic:
+        - "ABS plastic shell"
+        - "hard ABS surface with slight sheen"
+      aluminum:
+        - "brushed aluminum"
+        - "anodized aluminum"
+        - "polished aluminum"
+    soft_fabrics:
+      nylon:
+        - "nylon fabric"
+        - "ripstop nylon"
+        - "ballistic nylon"
+        - "600D nylon"
+      polyester:
+        - "polyester fabric"
+        - "high-density polyester"
+        - "woven polyester"
+      canvas:
+        - "canvas fabric"
+        - "waxed canvas"
+        - "heavy-duty canvas"
+      cordura:
+        - "Cordura nylon"
+        - "abrasion-resistant Cordura fabric"
+    leathers:
+      genuine_leather:
+        - "genuine leather"
+        - "full-grain leather"
+        - "pebbled leather"
+        - "smooth leather"
+      synthetic_leather:
+        - "vegan leather"
+        - "PU leather"
+        - "faux leather"
+    cardboard:
+      - "corrugated cardboard"
+      - "brown kraft cardboard"
+
+  # -- テクスチャ --
+  texture:
+    smooth:
+      - "smooth surface"
+      - "glossy finish"
+      - "matte finish"
+      - "satin finish"
+    textured:
+      - "ribbed texture"
+      - "diamond-pattern texture"
+      - "cross-hatch pattern"
+      - "brushed texture"
+      - "embossed pattern"
+    fabric:
+      - "woven texture"
+      - "herringbone weave"
+      - "plain weave"
+      - "twill weave"
+    worn:
+      - "slightly worn"
+      - "travel-worn with minor scuffs"
+      - "well-used with character marks"
+
+  # -- スタイル --
+  style:
+    modern:
+      - "modern minimalist design"
+      - "contemporary sleek design"
+      - "clean geometric shape"
+    classic:
+      - "classic vintage style"
+      - "traditional design"
+      - "timeless elegant look"
+    sporty:
+      - "sporty athletic design"
+      - "outdoor rugged style"
+      - "adventure travel style"
+    luxury:
+      - "premium luxury design"
+      - "high-end designer style"
+      - "sophisticated upscale look"
+    casual:
+      - "casual everyday style"
+      - "relaxed practical design"
+
+  # -- 状態 --
+  condition:
+    new:
+      - "brand new"
+      - "pristine condition"
+      - "unused, mint condition"
+    used:
+      - "lightly used"
+      - "well-traveled"
+      - "used with normal wear"
+    worn:
+      - "heavily used with visible wear"
+      - "worn patina"
+
+# ---- プロンプト組み立てテンプレート ----
+# {type}, {color}, {material}, {texture}, {style}, {condition} のプレースホルダー
+# 固定部分は自動付加される
+templates:
+  standard: >-
+    {type}, {color}, {material}, {texture}, {style}, {condition},
+    {fixed.background}, {fixed.lighting}, {fixed.view}, {fixed.quality}
+
+  minimal: >-
+    {type}, {color}, {material},
+    {fixed.background}, {fixed.lighting}, {fixed.quality}
+
+  detailed: >-
+    {type} in {color} with {material} construction,
+    {texture}, {style}, {condition},
+    isolated on {fixed.background}, {fixed.lighting},
+    {fixed.view}, {fixed.quality}, no shadows outside object
+
+  # LLM リファイン用ベーステンプレート（Qwen3-VL-32B に渡す）
+  llm_refine_system: >-
+    You are a professional product photographer and prompt engineer specializing
+    in generating high-quality product images with FLUX.1-schnell diffusion model.
+    Your task is to refine image generation prompts for airport luggage items.
+    Output only the refined prompt, no explanations.
+
+  llm_refine_user: >-
+    /no_think
+    Refine this product image prompt for FLUX.1-schnell.
+    Keep it under 120 words. Preserve all factual attributes.
+    Ensure it specifies: pure white background, studio lighting,
+    product photography angle, photorealistic quality.
+    Input prompt: {base_prompt}
+
+# ---- サンプリング設定 ----
+sampling:
+  # combinatorial 生成時の属性選択重み（均等でない場合に調整）
+  color_weights:
+    neutrals: 0.40   # 黒・グレー系が最も多い
+    blues: 0.20
+    reds_pinks: 0.15
+    greens: 0.10
+    browns_golds: 0.10
+    others: 0.05
+
+  condition_weights:
+    new: 0.50
+    used: 0.35
+    worn: 0.15
+
+  # カテゴリごとの生成比率（合計 1.0）
+  category_weights:
+    hard_suitcase: 0.25
+    soft_suitcase: 0.15
+    backpack: 0.15
+    duffel_bag: 0.10
+    tote_bag: 0.08
+    briefcase: 0.07
+    cardboard_box: 0.06
+    hard_case: 0.04
+    golf_bag: 0.03
+    stroller: 0.03
+    instrument_case: 0.02
+    ski_bag: 0.02
