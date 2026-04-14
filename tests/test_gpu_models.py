@@ -1,31 +1,30 @@
 """
 T-0.3: GPU 動作確認テスト
 
-各モデルが DGX Spark 上で正常に推論できることを確認する。
+各モデルが正常に推論できることを確認する。
 
-実行方法:
-    # 全テスト
+実行方法（DGX Spark — aarch64）:
+    # FLUX.1 + Qwen3 のみ（DGX Spark 標準）
     python tests/test_gpu_models.py
-
-    # 個別テスト
-    python tests/test_gpu_models.py --models flux
-    python tests/test_gpu_models.py --models trellis
-    python tests/test_gpu_models.py --models qwen
-    python tests/test_gpu_models.py --models flux trellis qwen
+    python tests/test_gpu_models.py --models flux qwen
 
     # vLLM サーバーを自動起動してテスト（Qwen）
     python tests/test_gpu_models.py --models qwen --start-vllm
 
-確認内容:
+実行方法（x86_64 別 PC — TRELLIS.2 専用）:
+    conda activate trellis2
+    python tests/test_gpu_models.py --models trellis
+
+確認内容（DGX Spark）:
     - FLUX.1-schnell で 1 枚画像生成（~12GB 使用確認）
-    - TRELLIS.2-4B で 1 つの 3D モデル生成（~24GB 使用確認）
     - Qwen3-VL-32B-Instruct でテキスト生成・画像理解（~65GB 使用確認, vLLM 経由）
     - 各ステップで GPU メモリ解放を確認
-    - ピーク使用量が 128GB を超えないことを検証
+
+確認内容（x86_64 別 PC）:
+    - TRELLIS.2-4B で 1 つの 3D モデル生成（~24GB 使用確認）
 
 注意:
-    - TRELLIS.2 は conda 環境 "trellis2" のインストールが必要
-      (setup_environment.sh または ~/trellis2/setup.sh を先に実行)
+    - TRELLIS.2 は x86_64 + RTX 5090 専用。DGX Spark (aarch64) では動作しない
     - Qwen テストは vLLM サーバー (http://localhost:8001) が起動済みであること
       または --start-vllm フラグを使用すること
 """
@@ -163,74 +162,58 @@ def test_flux() -> dict:
 
 
 # ============================================================
-# テスト 2: TRELLIS.2-4B
+# テスト 2: TRELLIS.2-4B（x86_64 別 PC 専用）
 # ============================================================
 
 def test_trellis() -> dict:
-    """TRELLIS.2-4B で 1 つの 3D モデルを生成し、メモリ使用量を確認する"""
+    """
+    TRELLIS.2-4B で 1 つの 3D モデルを生成し、メモリ使用量を確認する。
+
+    !! DGX Spark (aarch64) では実行不可 !!
+    x86_64 + RTX 5090 の別 PC で以下のように実行する:
+        conda activate trellis2
+        python tests/test_gpu_models.py --models trellis
+    """
     logger.info("=" * 60)
-    logger.info("TEST 2: TRELLIS.2-4B 3D 生成")
+    logger.info("TEST 2: TRELLIS.2-4B 3D 生成（x86_64 別 PC 専用）")
     logger.info("=" * 60)
 
     result = {"name": "TRELLIS.2-4B", "passed": False, "peak_gb": 0.0, "error": None}
 
     log_memory("TRELLIS ロード前")
 
-    pipeline = None
+    gen = None
     try:
-        # trellis2 パッケージは conda 環境 "trellis2" 経由でインストール済みであること
-        from trellis2.pipelines import Trellis2ImageTo3DPipeline
-        import torch
+        # MeshGenerator 経由でテスト（本番コードと同じパスを通す）
+        # trellis2 パッケージは conda 環境 "trellis2" 経由でインストール済みであること:
+        #   cd ~/trellis2
+        #   . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel
+        from src.mesh_generator import MeshGenerator
         from PIL import Image
 
         model_path = _resolve("TRELLIS.2-4B", "microsoft/TRELLIS.2-4B")
         logger.info(f"モデルパス: {model_path}")
 
-        import o_voxel
-
-        pipeline = Trellis2ImageTo3DPipeline.from_pretrained(model_path)
-        pipeline.cuda()
+        gen = MeshGenerator(model_path)
 
         mem_loaded = log_memory("TRELLIS ロード後")
 
         # テスト用の白背景ダミー画像（グレーの直方体）
-        test_image = Image.new("RGB", (512, 512), color=(200, 200, 200))
-
-        logger.info("3D 生成中 (seed=42) ...")
-        # TRELLIS.2 は run() に seed 引数がないため torch.manual_seed() で制御
-        torch.manual_seed(42)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(42)
-        mesh = pipeline.run(test_image)[0]
-
-        mem_peak = log_memory("TRELLIS 生成後")
-        result["peak_gb"] = mem_peak
-
-        # GLB として保存して検証
         with tempfile.TemporaryDirectory() as tmpdir:
+            img_path = Path(tmpdir) / "test_input.png"
+            Image.new("RGB", (512, 512), color=(200, 200, 200)).save(str(img_path))
+
             glb_path = Path(tmpdir) / "test_output.glb"
-            # TRELLIS.2 の GLB エクスポートは o_voxel.postprocess.to_glb() を使用
-            glb = o_voxel.postprocess.to_glb(
-                vertices=mesh.vertices,
-                faces=mesh.faces,
-                attr_volume=mesh.attrs,
-                coords=mesh.coords,
-                attr_layout=mesh.layout,
-                voxel_size=mesh.voxel_size,
-                aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
-                decimation_target=950_000,
-                texture_size=1024,
-                remesh=True,
-                remesh_band=1,
-                remesh_project=0,
-                verbose=False,
-            )
-            glb.export(str(glb_path), extension_webp=True)
+
+            logger.info("3D 生成中 (seed=42) ...")
+            gen.generate_single(str(img_path), seed=42, output_path=str(glb_path))
+
+            mem_peak = log_memory("TRELLIS 生成後")
+            result["peak_gb"] = mem_peak
 
             assert glb_path.exists(), "GLB ファイルが生成されなかった"
             assert glb_path.stat().st_size > 0, "GLB ファイルサイズが 0"
 
-            # trimesh で有効なメッシュか確認
             import trimesh
             loaded_mesh = trimesh.load(str(glb_path))
             assert loaded_mesh is not None, "trimesh でメッシュを読み込めない"
@@ -244,6 +227,7 @@ def test_trellis() -> dict:
     except ImportError as e:
         msg = (
             f"trellis2 パッケージが見つかりません: {e}\n"
+            "  このテストは x86_64 別 PC でのみ動作します。\n"
             "  conda 環境 'trellis2' がインストールされているか確認してください:\n"
             "    cd ~/trellis2\n"
             "    . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel\n"
@@ -255,7 +239,8 @@ def test_trellis() -> dict:
         logger.error(f"✗ TRELLIS.2-4B: {e}")
         result["error"] = str(e)
     finally:
-        free_torch_memory(pipeline)
+        if gen is not None:
+            gen.unload()
         mem_after = log_memory("TRELLIS アンロード後")
         logger.info(f"  解放量: {result['peak_gb'] - mem_after:.1f} GB")
 
@@ -455,7 +440,7 @@ def main():
     )
     args = parser.parse_args()
 
-    targets = ["flux", "trellis", "qwen"] if "all" in args.models else args.models
+    targets = ["flux", "qwen"] if "all" in args.models else args.models
 
     logger.info("=" * 60)
     logger.info("T-0.3: GPU 動作確認テスト開始")

@@ -425,9 +425,8 @@ DGX Spark は 128GB 統合メモリ。**モデルを同時にロードしない*
 
 | 実行中のモデル | 停止しておくもの |
 |--------------|----------------|
-| Qwen3-VL-32B（~65GB） | FLUX.1 / TRELLIS.2 |
+| Qwen3-VL-32B（~65GB） | FLUX.1-schnell |
 | FLUX.1-schnell（~12GB） | vLLM サーバー |
-| TRELLIS.2-4B（~24GB） | vLLM サーバー |
 
 `run_pipeline.py` はこの切り替えを自動管理します。`run_step.py` で個別実行する場合は上記制約を手動で守ってください。
 

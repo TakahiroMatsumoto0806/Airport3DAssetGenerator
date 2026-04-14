@@ -100,20 +100,16 @@ chmod +x "${SCRIPT_DIR}/start_vllm_server.sh"
 log "vLLM 起動スクリプト: scripts/start_vllm_server.sh"
 log "  起動方法: bash scripts/start_vllm_server.sh"
 
-# ---- 10. TRELLIS.2 コードのセットアップ ----
-# TRELLIS.2 は DGX Spark (aarch64) では動作しない。x86_64 + RTX 5090 の別 PC で実行すること。
-# ここでは参照用にコードのみ clone する（失敗してもセットアップは続行）。
-log "=== Step 10: TRELLIS.2 コードの clone（参照用）==="
-log "  ※ TRELLIS.2 は DGX Spark(aarch64) では動作しません。別 PC で実行してください。"
-TRELLIS_CODE_DIR="${HOME}/trellis2"
-if [ ! -d "${TRELLIS_CODE_DIR}" ]; then
-    log "  TRELLIS.2 を clone: ${TRELLIS_CODE_DIR}"
-    git clone --depth 1 https://github.com/microsoft/TRELLIS.2 "${TRELLIS_CODE_DIR}" \
-        || warn "  TRELLIS.2 の clone に失敗しました（ネットワーク不可または repo 不在）。別 PC で手動 clone してください。"
-else
-    log "  TRELLIS.2 は既に clone 済み: ${TRELLIS_CODE_DIR}"
-    git -C "${TRELLIS_CODE_DIR}" pull --ff-only || true
-fi
+# ---- 10. TRELLIS.2 について ----
+# TRELLIS.2 は DGX Spark (aarch64) では動作しない。
+# x86_64 + RTX 5090 の別 PC で以下のようにセットアップすること:
+#   git clone --depth 1 https://github.com/microsoft/TRELLIS.2 ~/trellis2
+#   cd ~/trellis2
+#   . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel
+#   huggingface-cli download microsoft/TRELLIS.2-4B --local-dir ~/models/TRELLIS.2-4B
+log "=== Step 10: TRELLIS.2 ==="
+log "  ※ TRELLIS.2 は DGX Spark(aarch64) では動作しません。"
+log "  ※ x86_64 別 PC でのセットアップ手順は README.md の「TRELLIS.2 専用 PC」セクションを参照してください。"
 
 # ---- 完了 ----
 log ""
@@ -128,5 +124,5 @@ else
     log "  2. python tests/test_gpu_models.py     # GPU 動作確認 (T-0.3)"
 fi
 log ""
-log "TRELLIS.2 を使う際は（x86_64 PC のみ）:"
-log "  conda activate trellis2"
+log "TRELLIS.2（3D 生成）は x86_64 別 PC で実行してください。"
+log "  → README.md の「TRELLIS.2 専用 PC」セクションを参照"

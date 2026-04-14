@@ -218,10 +218,10 @@ mesh_vlm_qa:
       "pass": <true if geometry_score>={min_geometry} AND texture_score>={min_texture}>
     }
 
-  # スコア閾値（TRELLIS 出力の実測分布に基づいた緩和値）
+  # スコア閾値（最終確定値）
   thresholds:
-    geometry: 5    # TRELLIS 出力では avg=4.0 のため 5 に設定
-    texture: 4     # TRELLIS 出力では avg=3.3 のため 4 に設定
+    geometry: 6
+    texture: 5
 
   thinking_mode: true    # /think（複雑な3D幾何・材質評価で精度向上）
   azimuths: [0, 90, 180, 270]   # レンダリング方位角（度）
@@ -242,7 +242,7 @@ mesh_vlm_qa:
 ```
 ↓
 ```
-"pass": <true if geometry_score>=5 AND texture_score>=4>
+"pass": <true if geometry_score>=6 AND texture_score>=5>
 ```
 
 また、`{n_views}` はレンダリング視点数（デフォルト4）で置換されます。
@@ -251,14 +251,11 @@ mesh_vlm_qa:
 
 | 指標 | 合格閾値 | 説明 |
 |------|---------|------|
-| `geometry_score` | >= 5 (default) | 3D形状品質（recognizable=5, clean=7, professional=10） |
-| `texture_score` | >= 4 (default) | テクスチャ品質（visible color=4, good UV=6, PBR realism=9） |
+| `geometry_score` | >= 6 | 3D形状品質（recognizable=5, clean=7, professional=10） |
+| `texture_score` | >= 5 | テクスチャ品質（visible color=4, good UV=6, PBR realism=9） |
 | `is_realistic_luggage` | true | 荷物として認識できるか |
 
 `geometry_score >= min_geometry AND texture_score >= min_texture` を満たす場合のみ `pass: true`。
-
-> **注**: TRELLIS 出力の実測値（geometry avg=4.0, texture avg=3.3）を踏まえ、
-> 元仕様（geometry>=7, texture>=6）から緩和しています。
 
 ### 返答スキーマ
 

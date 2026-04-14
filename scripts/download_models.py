@@ -1,24 +1,25 @@
 """
-T-0.2: モデルダウンロードスクリプト
+T-0.2: モデルダウンロードスクリプト（DGX Spark 用）
 
-ダウンロード対象:
+ダウンロード対象（DGX Spark で実行するもの）:
   1. black-forest-labs/FLUX.1-schnell     (~12GB, BF16)  ※ HFライセンス同意必須
-  2. microsoft/TRELLIS.2-4B              (~24GB, BF16)  ※ モデルウェイトのみ
-  3. Qwen/Qwen3-VL-32B-Instruct          (~65GB, BF16)
-  4. laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K (~2GB)
+  2. Qwen/Qwen3-VL-32B-Instruct          (~65GB, BF16)
+  3. laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K (~2GB)
 
 注意:
-  - TRELLIS.2 の Python パッケージは pip では配布されていない。
-    GitHub リポジトリ (https://github.com/microsoft/TRELLIS.2) を clone し、
-    付属の setup.sh で別途インストールが必要（download_trellis_code() 参照）。
+  - TRELLIS.2-4B はこのスクリプトのデフォルト対象外。
+    TRELLIS.2 は x86_64 + RTX 5090 の別 PC でのみ動作する（DGX Spark / aarch64 非対応）。
+    別 PC でダウンロードする場合は --models trellis を明示的に指定すること。
   - FLUX.1-schnell は HuggingFace でのライセンス同意が必要。
     事前に https://huggingface.co/black-forest-labs/FLUX.1-schnell にアクセスして
     同意してから huggingface-cli login を実行すること。
 
-使用方法:
-  python scripts/download_models.py
-  python scripts/download_models.py --models flux trellis qwen clip  # 個別指定
-  python scripts/download_models.py --verify-only                    # サイズ検証のみ
+使用方法（DGX Spark）:
+  python scripts/download_models.py                          # flux + qwen + clip のみ
+  python scripts/download_models.py --verify-only           # サイズ検証のみ
+
+使用方法（x86_64 別 PC — TRELLIS.2 用）:
+  python scripts/download_models.py --models trellis
 """
 
 import argparse
@@ -172,8 +173,13 @@ def main():
         "--models",
         nargs="+",
         choices=list(MODELS.keys()) + ["all"],
-        default=["all"],
-        help="ダウンロードするモデルを指定 (デフォルト: all)",
+        default=["flux", "qwen", "clip"],
+        help=(
+            "ダウンロードするモデルを指定 "
+            "(デフォルト: flux qwen clip — DGX Spark 用)\n"
+            "TRELLIS.2 は x86_64 別 PC でのみ使用。"
+            "別 PC で実行する場合は --models trellis を指定すること"
+        ),
     )
     parser.add_argument(
         "--verify-only",

@@ -13,12 +13,12 @@ TRELLIS.2 公式 API:
   mesh = results[0]
   # mesh.vertices, mesh.faces, mesh.attrs (voxel PBR), mesh.coords
 
-GB10 対応:
-  - SPARSE_CONV_BACKEND=torchsparse (flex_gemm は aarch64 非対応)
-  - SPARSE_ATTN_BACKEND=sdpa (flash_attn は sm_121 非対応)
-  - cumesh は lazy import で保護済み（fill_holes は無視）
-  - o_voxel / flex_gemm 非対応のため scipy cKDTree 最近傍で頂点色を計算して trimesh で GLB 出力
-    (旧 PyTorch trilinear dense-volume 実装は 0-contamination バグあり → cKDTree に置換済み)
+実行環境: x86_64 + RTX 5090（別 PC）専用。DGX Spark (aarch64) では動作しない。
+
+GLB エクスポート実装:
+  - o_voxel (TRELLIS.2 公式) を使わず scipy cKDTree 最近傍で頂点色を補間して trimesh で GLB 出力
+    (o_voxel の trilinear dense-volume 実装は 0-contamination バグあり → cKDTree に置換済み)
+  - cKDTree: occupied voxel のみで KD 木を構築し、各頂点に最近傍 voxel の属性を割り当てる
 
 使用例:
     gen = MeshGenerator("~/models/TRELLIS.2-4B")
