@@ -302,7 +302,9 @@ def main() -> int:
             from src.prompt_generator import PromptGenerator
             gen = PromptGenerator(cfg_dir)
             vlm_cfg = cfg.get("models", {}).get("vlm", {})
-            model_name = vlm_cfg.get("model_name", "/home/ntt/models/Qwen3-VL-32B-Instruct")
+            model_name = str(Path(vlm_cfg.get(
+                "model_name", str(Path.home() / "models" / "Qwen3-VL-32B-Instruct")
+            )).expanduser())
             vllm_base_url_cfg = cfg.get("models", {}).get("vlm", {}).get("base_url", "http://localhost:8001/v1")
             # vLLM を使って一括リファイン
             refined_prompts = gen.generate_with_llm_refinement(

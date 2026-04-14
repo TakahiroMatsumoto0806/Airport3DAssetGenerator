@@ -186,9 +186,9 @@ class AL3DGPipeline:
 
         qa = ImageQA(
             vllm_base_url=self.cfg.models.vlm.get("base_url", "http://localhost:8001/v1"),
-            model_name=self.cfg.models.vlm.get(
-                "model_name", "Qwen/Qwen3-VL-32B-Instruct"
-            ),
+            model_name=str(Path(self.cfg.models.vlm.get(
+                "model_name", str(Path.home() / "models" / "Qwen3-VL-32B-Instruct")
+            )).expanduser()),
             thresholds=dict(qa_cfg.get("thresholds", {"realism": 7, "integrity": 7})),
         )
         result = qa.evaluate_batch(
@@ -271,10 +271,10 @@ class AL3DGPipeline:
 
         qa = MeshVLMQA(
             vllm_base_url=self.cfg.models.vlm.get("base_url", "http://localhost:8001/v1"),
-            model_name=self.cfg.models.vlm.get(
-                "model_name", "Qwen/Qwen3-VL-32B-Instruct"
-            ),
-            thresholds=dict(qa_cfg.get("thresholds", {"geometry": 7, "texture": 6})),
+            model_name=str(Path(self.cfg.models.vlm.get(
+                "model_name", str(Path.home() / "models" / "Qwen3-VL-32B-Instruct")
+            )).expanduser()),
+            thresholds=dict(qa_cfg.get("thresholds", {"geometry": 6, "texture": 5})),
         )
         result = qa.evaluate_batch(
             mesh_dir=mesh_dir,

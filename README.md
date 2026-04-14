@@ -8,6 +8,8 @@
 
 ## インストール
 
+> **事前確認**: インストールを始める前に「[前提条件](#前提条件)」セクションを必ず確認してください。
+
 ### Method A: GitHub + Hugging Face（オンライン）
 
 ```bash
@@ -32,17 +34,22 @@ python scripts/run_pipeline.py
 
 ### Method B: 共有ドライブから（オフライン・推奨）
 
-別の DGX Spark からモデルを受け取る場合はこちら。Hugging Face 不要。
+別の DGX Spark からモデルを受け取る場合。Hugging Face アカウント不要。
+
+`share/` はモデルウェイト（~75GB）を含むオフライン配布パッケージです。
+送り側 DGX Spark の `share/` フォルダを受け取り側へ転送してから以下を実行します。
 
 ```bash
-# 送り側 DGX Spark で share/ ディレクトリを転送
+# 【送り側 DGX Spark で実行】
 rsync -avz --progress \
   /path/to/Airport3DAssetGenerator/share/ \
   user@target-dgx:/data/al3dg_share/
 
-# 受け取り側 DGX Spark で実行
+# 【受け取り側 DGX Spark で実行】
 git clone https://github.com/TakahiroMatsumoto0806/Airport3DAssetGenerator.git
 cd Airport3DAssetGenerator/al3dg
+
+# モデルコピー + 仮想環境セットアップ（自動実行）
 bash scripts/setup_from_share.sh /data/al3dg_share
 
 source .venv/bin/activate
@@ -133,18 +140,6 @@ TRELLIS.2-4B は aarch64 では動作しない。別途 x86_64 PC が必要。
 
 ---
 
-## 実行環境
-
-| 項目 | 内容 |
-|------|------|
-| ハードウェア | NVIDIA DGX Spark (Grace Blackwell GB10) |
-| メモリ | 128GB 統合メモリ |
-| OS | Ubuntu 22.04 LTS |
-| CUDA | 12.4 |
-| Python | 3.11 |
-
----
-
 ## モデル構成
 
 | モデル | 用途 | サイズ |
@@ -180,23 +175,20 @@ Step 5: エクスポート    (Isaac Sim USD メタデータ)
 
 ## vLLM サーバー管理
 
-Qwen3-VL-32B はプロセス間で共用される。**フルパイプライン（`run_pipeline.py`）は vLLM の起動・停止を自動で管理するため、手動操作は不要。**
+**`run_pipeline.py` はvLLM の起動・停止を自動管理するため、フルパイプライン実行時に手動操作は不要です。**
 
-個別ステップを手動実行する場合は、以下で別ターミナルから起動しておく:
+個別ステップ（`run_step.py`）を手動実行する場合のみ、別ターミナルで起動してください:
 
 ```bash
-# 起動（バックグラウンド）
 bash scripts/start_vllm_server.sh &
-
-# ヘルスチェック
-curl http://localhost:8001/health
+curl http://localhost:8001/health   # 起動確認（"ok" が返るまで待つ）
 ```
 
-| 注意点 | 内容 |
-|--------|------|
+| 項目 | 内容 |
+|------|------|
 | ポート | 8001（8000 は Docker proxy が使用中のため） |
-| 起動時間 | 初回は約 15 分（14 シャード × 約 20 秒 + CUDA グラフ生成） |
-| メモリ | 約 65GB。FLUX.1 / TRELLIS.2 ロード中は必ず停止すること |
+| 初回起動時間 | **約 15 分**（14 シャード読み込み + CUDA グラフ生成） |
+| メモリ使用量 | 約 65GB。FLUX.1 / TRELLIS.2 ロード前に必ず停止すること |
 
 ---
 
@@ -205,14 +197,12 @@ curl http://localhost:8001/health
 ### 通常の運用フロー
 
 ```bash
-# 1. フルパイプライン実行（プロンプト生成〜エクスポートまで一括）
+# フルパイプライン実行（プロンプト生成〜エクスポートまで一括）
+# ※ vLLM（Qwen3-VL-32B）の初回起動に約 15 分かかります
 python scripts/run_pipeline.py
-
-# 2. 完了後、レポートをブラウザで確認
-open outputs/reports/prompt_review.html
-open outputs/reports/image_qa_review.html
-open outputs/reports/mesh_vlm_qa_review.html
 ```
+
+完了後は「[レポートの確認](#レポートの確認)」セクションの手順でブラウザから結果を確認できます。
 
 ### Step 3（3D 生成）は別 PC で実行
 
@@ -253,7 +243,6 @@ python scripts/run_step.py --step <ステップ名>
 
 # 例: 物理プロパティ付与のみ
 python scripts/run_step.py --step physics
-
 ```
 
 利用可能なステップ一覧:
@@ -319,7 +308,9 @@ generation:
 models:
   vlm:
     base_url: "http://localhost:8001/v1"  # vLLM サーバーの URL
-    model_name: "~/models/Qwen3-VL-32B-Instruct"  # ← ユーザーごとに要確認
+    # model_name: vLLM serve 起動時と同じパスを指定する（~/は自動展開される）
+    # モデルを ~/models/ 以外に置く場合は絶対パスまたは ~/... で指定
+    model_name: "~/models/Qwen3-VL-32B-Instruct"
 
 image_qa:
   thresholds:
@@ -328,8 +319,8 @@ image_qa:
 
 mesh_vlm_qa:
   thresholds:
-    geometry: 5     # 3D 形状品質閾値（1-10）
-    texture: 4      # テクスチャ品質閾値（1-10）
+    geometry: 6     # 3D 形状品質閾値（1-10）
+    texture: 5      # テクスチャ品質閾値（1-10）
 ```
 
 ### `configs/prompt_templates.yaml` — プロンプト・カテゴリ重み
@@ -347,7 +338,7 @@ sampling:
 
 ### `configs/luggage_categories.yaml` — カテゴリ定義
 
-各カテゴリのサイズ・材質・色などを定義する。カテゴリを追加・削除する際は以下 4 ファイルを同時に更新すること:
+各カテゴリのサイズ・材質・色などを定義する。カテゴリを追加・削除する際は以下 3 ファイルを同時に更新すること:
 
 1. `configs/luggage_categories.yaml` — カテゴリ本体
 2. `configs/prompt_templates.yaml` — `attributes.type` にテンプレート追加 + `category_weights` に重み追加
@@ -357,7 +348,11 @@ sampling:
 
 ## カテゴリ別合格率の測定
 
-本番生成前にカテゴリごとの画像検品合格率を測定し、`category_weights` を最適化するために使用する。
+**目的**: 本番の大量生成（1,000件）を開始する前に、カテゴリごとの通過率を小規模サンプルで測定し、
+`configs/prompt_templates.yaml` の `category_weights` を最適化する。
+
+各カテゴリの画像 QA 通過率にばらつきがあるため、通過率の低いカテゴリの重みを下げて
+最終アセットの分布が目標比率に近くなるよう調整する。
 
 ```bash
 # 20 枚/カテゴリで測定（精度 ±22%、推奨スケール）
@@ -383,12 +378,12 @@ DGX Spark はヘッドレスサーバーのため、`open` コマンドは使用
 
 ```bash
 # 方法 1: HTTP サーバーを起動してブラウザアクセス（推奨）
-python3 -m http.server 8080 --directory outputs/reports/
-# → ローカル PC のブラウザで http://<DGX-Spark-IP>:8080 を開く
+python3 -m http.server 8080 --directory outputs/
+# → ローカル PC のブラウザで http://<DGX-Spark-IP>:8080/reports/ を開く
 
 # 方法 2: ローカル PC に scp でコピー
-scp -r user@dgx-spark:~/Airport3DAssetGenerator/al3dg/outputs/reports/ ~/al3dg_reports/
-# → ローカル PC でファイルをブラウザで開く
+scp -r user@dgx-spark:~/Airport3DAssetGenerator/al3dg/outputs/ ~/al3dg_outputs/
+# → ローカル PC のブラウザで al3dg_outputs/reports/prompt_review.html を開く
 ```
 
 | レポート | 内容 |
@@ -426,17 +421,17 @@ python scripts/backup_outputs.py
 
 ### 逐次ロード戦略（必須）
 
-同時に複数の大規模モデルをロードしないこと。ピークメモリは常に 128GB 以下に保つ。
+DGX Spark は 128GB 統合メモリ。**モデルを同時にロードしない**こと。
 
-```
-Qwen3-VL-32B（~65GB）起動中 → FLUX.1 / TRELLIS.2 は必ずアンロード済みであること
-FLUX.1-schnell（~12GB）ロード中 → vLLM サーバーは必ず停止すること
-TRELLIS.2-4B（~24GB）ロード中 → vLLM サーバーは必ず停止すること
-```
+| 実行中のモデル | 停止しておくもの |
+|--------------|----------------|
+| Qwen3-VL-32B（~65GB） | FLUX.1 / TRELLIS.2 |
+| FLUX.1-schnell（~12GB） | vLLM サーバー |
+| TRELLIS.2-4B（~24GB） | vLLM サーバー |
 
-`run_pipeline.py` はこの順序を自動的に管理する。手動で個別ステップを実行する場合は上記の制約を必ず守ること。
+`run_pipeline.py` はこの切り替えを自動管理します。`run_step.py` で個別実行する場合は上記制約を手動で守ってください。
 
 ### TRELLIS.2 は別 PC で実行
 
-TRELLIS.2-4B は x86_64 アーキテクチャ + RTX 5090 環境で実行する。DGX Spark（aarch64）では実行不可。
-GLB ファイルを生成後、`outputs/meshes_raw/` へ転送してから後続ステップを実行する。
+TRELLIS.2-4B は x86_64 アーキテクチャが必要です。DGX Spark（aarch64）では動作しません。
+GLB ファイルを生成後、`outputs/meshes_raw/` へ転送してから後続ステップを実行します。

@@ -9,9 +9,9 @@ Thinking モード: /think（複雑な幾何・材質評価に精度向上）
   2. 4 枚の画像をすべて VLM に送信してスコアを取得
   3. スコア閾値で pass / review / fail を判定
 
-合格基準（仕様書記載）:
-  - geometry_score >= 7
-  - texture_score  >= 6
+合格基準（pipeline_config.yaml の mesh_vlm_qa.thresholds に従う）:
+  - geometry_score >= 6
+  - texture_score  >= 5
 
 使用例:
     qa = MeshVLMQA()
@@ -49,15 +49,14 @@ def _safe_format(template: str, **kwargs) -> str:
     return re.sub(r"\{(\w+)\}", _replacer, template)
 
 
-# 合格基準
-# 元仕様: geometry>=7, texture>=6
-# TRELLIS 向け緩和 (2026-04-05): TRELLIS の baked texture は暗く低スコアになりやすいため
-# 実測分布 (n=20: geo avg=4.0, tex avg=3.3) を踏まえて閾値を調整
-MIN_GEOMETRY_SCORE = 5
-MIN_TEXTURE_SCORE = 4
+# 合格基準（モジュールのデフォルト値。pipeline_config.yaml の thresholds で上書き可能）
+# TRELLIS 向け緩和: TRELLIS の baked texture は暗く低スコアになりやすいため
+# 元仕様 (geometry>=7, texture>=6) から実測分布を踏まえて調整済み
+MIN_GEOMETRY_SCORE = 6
+MIN_TEXTURE_SCORE = 5
 
 # VLM モデルとエンドポイント
-_DEFAULT_MODEL = "/home/ntt/models/Qwen3-VL-32B-Instruct"
+_DEFAULT_MODEL = str(Path.home() / "models" / "Qwen3-VL-32B-Instruct")
 _DEFAULT_VLLM_URL = "http://localhost:8001/v1"
 
 _SYSTEM_PROMPT = """You are a 3D asset quality inspector for a robotics training dataset.
@@ -79,7 +78,7 @@ Evaluate the mesh quality relative to AI-generated mesh standards and return a J
   "detected_type": <string: best matching type, e.g. "hard_suitcase", "soft_suitcase", "backpack", "duffel_bag", "handbag">,
   "detected_material": <string: primary material, e.g. "polycarbonate", "nylon", "leather", "fabric">,
   "issues": <list of strings: critical problems only, empty list if acceptable>,
-  "pass": <true if geometry_score>=5 AND texture_score>=4>
+  "pass": <true if geometry_score>=6 AND texture_score>=5>
 }}
 
 {expected_type_hint}
