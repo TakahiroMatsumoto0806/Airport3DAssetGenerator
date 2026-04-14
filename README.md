@@ -76,13 +76,66 @@ docker compose run --rm al3dg python scripts/run_step.py --step mesh_qa
 
 ---
 
+## 前提条件
+
+### DGX Spark（メイン実行環境）
+
+| 項目 | 要件 |
+|------|------|
+| ハードウェア | NVIDIA DGX Spark (Grace Blackwell GB10) |
+| アーキテクチャ | aarch64 (ARM64) |
+| 統合メモリ | 128GB 以上 |
+| OS | Ubuntu 22.04 LTS |
+| CUDA | 12.4 以上 |
+| Python | 3.11（`uv venv` で自動インストール） |
+| ディスク空き容量 | モデル ~117GB + 出力 ~10GB = **合計 130GB 以上** |
+| sudo 権限 | 必要（`apt-get` でシステムパッケージをインストール） |
+| ネットワーク | Method A: Hugging Face へのアクセス / Method B: 共有ドライブ or SCP |
+| ポート 8001 | vLLM サーバー用（他プロセスと競合しないこと） |
+
+### Hugging Face アカウント（Method A のみ）
+
+1. [Hugging Face](https://huggingface.co) にアカウント登録
+2. 以下モデルのライセンスに同意:
+   - [black-forest-labs/FLUX.1-schnell](https://huggingface.co/black-forest-labs/FLUX.1-schnell)（要ライセンス同意）
+   - [Qwen/Qwen3-VL-32B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-32B-Instruct)
+3. アクセストークンを発行し、`huggingface-cli login` で認証
+
+### Docker 環境（Method C のみ）
+
+- Docker Engine 24.0 以上
+- NVIDIA Container Toolkit（`nvidia-docker2`）
+
+```bash
+sudo apt install nvidia-container-toolkit
+sudo systemctl restart docker
+docker info | grep -i runtime  # → nvidia が表示されることを確認
+```
+
+### TRELLIS.2 専用 PC（Step 3: 3D 生成）
+
+TRELLIS.2-4B は aarch64 では動作しない。別途 x86_64 PC が必要。
+
+| 項目 | 要件 |
+|------|------|
+| アーキテクチャ | x86_64 |
+| GPU | NVIDIA RTX 5090 推奨（VRAM 24GB 以上） |
+| conda | Miniconda / Anaconda（TRELLIS.2 の `setup.sh` が conda 環境を作成） |
+| ネットワーク | DGX Spark と SSH/rsync でファイル転送可能なこと |
+
+> **注意:** DGX Spark（aarch64）では TRELLIS.2 は実行できません。
+> GLB ファイルを生成後、`rsync` で `outputs/meshes_raw/` に転送してください。
+
+---
+
 ## 実行環境
 
 | 項目 | 内容 |
 |------|------|
 | ハードウェア | NVIDIA DGX Spark (Grace Blackwell GB10) |
 | メモリ | 128GB 統合メモリ |
-| OS | Ubuntu Linux |
+| OS | Ubuntu 22.04 LTS |
+| CUDA | 12.4 |
 | Python | 3.11 |
 
 ---
