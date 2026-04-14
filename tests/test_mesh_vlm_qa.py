@@ -82,18 +82,18 @@ def _mock_vllm_response(content_dict: dict) -> MagicMock:
 class TestApplyDefaults(unittest.TestCase):
 
     def test_pass_logic_geometry_below_threshold(self):
-        """geometry_score < 7 なら pass=False"""
-        result = _apply_defaults({"geometry_score": 6, "texture_score": 7})
+        """geometry_score < MIN_GEOMETRY_SCORE(5) なら pass=False"""
+        result = _apply_defaults({"geometry_score": MIN_GEOMETRY_SCORE - 1, "texture_score": 7})
         self.assertFalse(result["pass"])
 
     def test_pass_logic_texture_below_threshold(self):
-        """texture_score < 6 なら pass=False"""
-        result = _apply_defaults({"geometry_score": 8, "texture_score": 5})
+        """texture_score < MIN_TEXTURE_SCORE(4) なら pass=False"""
+        result = _apply_defaults({"geometry_score": 8, "texture_score": MIN_TEXTURE_SCORE - 1})
         self.assertFalse(result["pass"])
 
     def test_pass_logic_both_above_threshold(self):
-        """geometry>=7 かつ texture>=6 なら pass=True"""
-        result = _apply_defaults({"geometry_score": 7, "texture_score": 6})
+        """geometry>=MIN_GEOMETRY_SCORE かつ texture>=MIN_TEXTURE_SCORE なら pass=True"""
+        result = _apply_defaults({"geometry_score": MIN_GEOMETRY_SCORE, "texture_score": MIN_TEXTURE_SCORE})
         self.assertTrue(result["pass"])
 
     def test_missing_fields_filled_with_defaults(self):
@@ -187,16 +187,16 @@ class TestEvaluate3D(unittest.TestCase):
         result = self.qa.evaluate_3d(self.render_paths)
         self.assertFalse(result["pass"])
 
-    def test_pass_threshold_geometry_exactly_7(self):
-        """geometry_score=7, texture_score=6 で pass=True（境界値）"""
-        resp = {**_make_good_response(), "geometry_score": 7, "texture_score": 6}
+    def test_pass_threshold_geometry_exactly_min(self):
+        """geometry_score=MIN_GEOMETRY_SCORE, texture_score=MIN_TEXTURE_SCORE で pass=True（境界値）"""
+        resp = {**_make_good_response(), "geometry_score": MIN_GEOMETRY_SCORE, "texture_score": MIN_TEXTURE_SCORE}
         self.qa._client = self._mock_client(resp)
         result = self.qa.evaluate_3d(self.render_paths)
         self.assertTrue(result["pass"])
 
-    def test_pass_threshold_geometry_6_fails(self):
-        """geometry_score=6 で pass=False（境界値）"""
-        resp = {**_make_good_response(), "geometry_score": 6, "texture_score": 7}
+    def test_pass_threshold_geometry_below_min_fails(self):
+        """geometry_score=MIN_GEOMETRY_SCORE-1 で pass=False（境界値）"""
+        resp = {**_make_good_response(), "geometry_score": MIN_GEOMETRY_SCORE - 1, "texture_score": MIN_TEXTURE_SCORE + 3}
         self.qa._client = self._mock_client(resp)
         result = self.qa.evaluate_3d(self.render_paths)
         self.assertFalse(result["pass"])

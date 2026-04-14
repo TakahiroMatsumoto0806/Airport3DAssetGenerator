@@ -12,7 +12,7 @@ GLB メッシュを 4 方向からオフスクリーンレンダリングし、Q
 | 項目 | 内容 |
 |------|------|
 | レンダラー | pyrender + OSMesa (headless OpenGL) |
-| VLM | Qwen3-VL-32B-Instruct（vLLM、localhost:8000） |
+| VLM | Qwen3-VL-32B-Instruct（vLLM、localhost:8001） |
 | Thinking モード | `/think`（3D 幾何の精密評価に有効） |
 | 合格基準 | geometry_score ≥ 7 **かつ** texture_score ≥ 6 |
 | 出力解像度 | 512 × 512 px × 4 視点 |
@@ -113,7 +113,7 @@ vllm serve "$MODEL" \
     --dtype bfloat16 \
     --max-model-len 8192 \
     --host 0.0.0.0 \
-    --port 8000 \
+    --port 8001 \
     --trust-remote-code
 ```
 
@@ -121,11 +121,11 @@ vllm serve "$MODEL" \
 
 ```bash
 # ヘルスチェック（起動に 2〜3 分かかる）
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 # "OK" が返ればサーバー起動済み
 
 # モデル一覧確認
-curl http://localhost:8000/v1/models | python -m json.tool
+curl http://localhost:8001/v1/models | python -m json.tool
 ```
 
 ### 2-3. メモリ使用量
@@ -144,7 +144,7 @@ from src.mesh_vlm_qa import MeshVLMQA
 
 qa = MeshVLMQA(
     model_name="Qwen/Qwen3-VL-32B-Instruct",   # vLLM に渡すモデル名
-    vllm_base_url="http://localhost:8000/v1",
+    vllm_base_url="http://localhost:8001/v1",
 )
 
 # 単体メッシュ評価
@@ -279,7 +279,7 @@ mesh = trimesh.load("outputs/meshes_raw/000001.glb", force="scene")
 print(mesh)
 ```
 
-### `ConnectionRefusedError: http://localhost:8000`
+### `ConnectionRefusedError: http://localhost:8001`
 
 **原因**: vLLM サーバーが起動していない。
 
@@ -287,7 +287,7 @@ print(mesh)
 ```bash
 bash scripts/start_vllm_server.sh &
 # 起動完了まで 2〜3 分待機
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 ```
 
 ### VLM が有効な JSON を返さない / スコアが常に低い

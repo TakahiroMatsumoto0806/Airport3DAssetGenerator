@@ -16,9 +16,6 @@ T-6.2: 個別ステップ実行スクリプト
     # 物理プロパティ付与（入力ディレクトリを明示）
     python scripts/run_step.py --step physics --input outputs/meshes_approved
 
-    # エクスポート形式を指定
-    python scripts/run_step.py --step sim_export --format mjcf
-
 利用可能なステップ:
     prompt       T-1.2: プロンプト生成
     image        T-2.1: 画像生成 (FLUX.1-schnell)
@@ -27,8 +24,7 @@ T-6.2: 個別ステップ実行スクリプト
     mesh_qa      T-3.2: メッシュ QA (trimesh)
     mesh_vlm_qa  T-3.3: VLM マルチビュー QA
     physics      T-4.1: 物理プロパティ付与 (CoACD)
-    sim_export   T-4.2: シミュレータエクスポート (MJCF/USD)
-    diversity    T-5.1: 多様性評価レポート
+    sim_export   T-4.2: Isaac Sim USD エクスポート
 """
 
 import argparse
@@ -45,7 +41,7 @@ from src.pipeline import AL3DGPipeline
 VALID_STEPS = [
     "prompt", "image", "image_qa",
     "mesh", "mesh_qa", "mesh_vlm_qa",
-    "physics", "sim_export", "diversity",
+    "physics", "sim_export",
 ]
 
 
@@ -77,12 +73,6 @@ def parse_args() -> argparse.Namespace:
         help="出力ディレクトリ（省略時は設定ファイルのデフォルト）",
     )
     parser.add_argument(
-        "--format",
-        default=None,
-        choices=["mjcf", "usd", "both"],
-        help="エクスポート形式 (sim_export ステップのみ有効)",
-    )
-    parser.add_argument(
         "--no-resume",
         action="store_true",
         default=False,
@@ -112,13 +102,8 @@ def main() -> int:
     # CLI オプションで設定を上書き
     if args.output and args.step == "sim_export":
         OmegaConf.update(cfg, "sim_export.output_dir", args.output)
-    if args.format and args.step == "sim_export":
-        OmegaConf.update(cfg, "sim_export.format", args.format)
     if args.output and args.step == "physics":
         OmegaConf.update(cfg, "physics.output_dir", args.output)
-    if args.output and args.step == "diversity":
-        OmegaConf.update(cfg, "diversity.output_dir", args.output)
-
     pipeline = AL3DGPipeline(cfg)
     resume = not args.no_resume
 
@@ -131,7 +116,6 @@ def main() -> int:
         "mesh_vlm_qa": lambda: pipeline.run_mesh_vlm_qa(resume=resume),
         "physics":     lambda: pipeline.run_physics(resume=resume),
         "sim_export":  lambda: pipeline.run_sim_export(resume=resume),
-        "diversity":   pipeline.run_diversity_report,
     }
 
     logger.info(f"ステップ実行: {args.step}")

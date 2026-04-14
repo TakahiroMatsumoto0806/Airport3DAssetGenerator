@@ -91,14 +91,22 @@ class PhysicsProcessor:
         mesh_path: str,
         output_dir: str,
         threshold: float = 0.08,
+        max_convex_hull: int = 16,
+        max_ch_vertex: int = 256,
+        resolution: int = 2000,
+        mcts_iterations: int = 150,
     ) -> list[str]:
         """
         CoACD で凸分解コリジョンメッシュを生成し STL として保存する。
 
         Args:
-            mesh_path:  入力 GLB / OBJ ファイルパス
-            output_dir: コリジョン STL の出力先ディレクトリ
-            threshold:  CoACD 凸分解の閾値（0.01〜1.0、小さいほど細かく分解）
+            mesh_path:        入力 GLB / OBJ ファイルパス
+            output_dir:       コリジョン STL の出力先ディレクトリ
+            threshold:        凸度閾値（0.01〜1.0、小さいほど細かく分解）
+            max_convex_hull:  凸包の最大個数（-1 で無制限）
+            max_ch_vertex:    凸包1個あたりの最大頂点数（ポリゴン数の上限）
+            resolution:       分解解像度（高いほど精密）
+            mcts_iterations:  MCTS 探索反復数（多いほど分解品質が上がる）
 
         Returns:
             list[str]: 生成されたコリジョン STL ファイルのパスリスト
@@ -131,8 +139,19 @@ class PhysicsProcessor:
             indices=np.array(loaded.faces, dtype=np.int32),
         )
 
-        logger.debug(f"  CoACD 凸分解: {mesh_path.name} (threshold={threshold})")
-        parts = coacd.run_coacd(mesh_coacd, threshold=threshold)
+        logger.debug(
+            f"  CoACD 凸分解: {mesh_path.name} "
+            f"(threshold={threshold}, max_hull={max_convex_hull}, "
+            f"max_ch_vertex={max_ch_vertex}, resolution={resolution})"
+        )
+        parts = coacd.run_coacd(
+            mesh_coacd,
+            threshold=threshold,
+            max_convex_hull=max_convex_hull,
+            max_ch_vertex=max_ch_vertex,
+            resolution=resolution,
+            mcts_iterations=mcts_iterations,
+        )
 
         collision_paths: list[str] = []
         for i, part in enumerate(parts):
@@ -220,6 +239,10 @@ class PhysicsProcessor:
         material: Optional[str] = None,
         luggage_type: Optional[str] = None,
         coacd_threshold: float = 0.08,
+        coacd_max_convex_hull: int = 16,
+        coacd_max_ch_vertex: int = 256,
+        coacd_resolution: int = 2000,
+        coacd_mcts_iterations: int = 150,
         randomize: bool = True,
     ) -> dict:
         """
@@ -235,12 +258,16 @@ class PhysicsProcessor:
             physics.json        # 物理プロパティ
 
         Args:
-            mesh_path:        入力 GLB ファイルパス
-            output_dir:       出力ディレクトリ（{asset_stem}/ サブディレクトリを作成）
-            material:         材質キー（None の場合は luggage_type から推論）
-            luggage_type:     荷物タイプ（material 解決のヒント）
-            coacd_threshold:  CoACD 閾値（デフォルト 0.08）
-            randomize:        物理プロパティにランダム変動を加えるか
+            mesh_path:              入力 GLB ファイルパス
+            output_dir:             出力ディレクトリ（{asset_stem}/ サブディレクトリを作成）
+            material:               材質キー（None の場合は luggage_type から推論）
+            luggage_type:           荷物タイプ（material 解決のヒント）
+            coacd_threshold:        CoACD 凸度閾値
+            coacd_max_convex_hull:  凸包の最大個数
+            coacd_max_ch_vertex:    凸包1個あたりの最大頂点数（ポリゴン数の上限）
+            coacd_resolution:       分解解像度
+            coacd_mcts_iterations:  MCTS 探索反復数
+            randomize:              物理プロパティにランダム変動を加えるか
 
         Returns:
             {
@@ -286,6 +313,10 @@ class PhysicsProcessor:
                 str(visual_path),
                 str(collision_dir),
                 threshold=coacd_threshold,
+                max_convex_hull=coacd_max_convex_hull,
+                max_ch_vertex=coacd_max_ch_vertex,
+                resolution=coacd_resolution,
+                mcts_iterations=coacd_mcts_iterations,
             )
             result["collision_paths"] = collision_paths
 
@@ -327,6 +358,10 @@ class PhysicsProcessor:
         output_dir: str,
         metadata_json: Optional[str] = None,
         coacd_threshold: float = 0.08,
+        coacd_max_convex_hull: int = 16,
+        coacd_max_ch_vertex: int = 256,
+        coacd_resolution: int = 2000,
+        coacd_mcts_iterations: int = 150,
         extensions: tuple[str, ...] = (".glb",),
         resume: bool = True,
     ) -> dict:
@@ -337,12 +372,16 @@ class PhysicsProcessor:
         自動的に material / luggage_type として使用する。
 
         Args:
-            mesh_dir:        入力メッシュディレクトリ
-            output_dir:      出力ルートディレクトリ
-            metadata_json:   VLM QA 結果 JSON（mesh_vlm_qa の output_json）
-            coacd_threshold: CoACD 閾値
-            extensions:      対象拡張子
-            resume:          True の場合、physics.json が既存のアセットをスキップ
+            mesh_dir:               入力メッシュディレクトリ
+            output_dir:             出力ルートディレクトリ
+            metadata_json:          VLM QA 結果 JSON（mesh_vlm_qa の output_json）
+            coacd_threshold:        CoACD 凸度閾値
+            coacd_max_convex_hull:  凸包の最大個数
+            coacd_max_ch_vertex:    凸包1個あたりの最大頂点数（ポリゴン数の上限）
+            coacd_resolution:       分解解像度
+            coacd_mcts_iterations:  MCTS 探索反復数
+            extensions:             対象拡張子
+            resume:                 True の場合、physics.json が既存のアセットをスキップ
 
         Returns:
             {
@@ -371,6 +410,23 @@ class PhysicsProcessor:
             f for f in mesh_dir.iterdir()
             if f.is_file() and f.suffix.lower() in extensions
         )
+
+        # VLM QA の pass 結果でフィルタリング
+        # metadata_json が指定されている場合は pass: True のメッシュのみを処理する。
+        # vlm_meta に存在しないメッシュ（vlm_qa 未評価）も除外する。
+        if vlm_meta:
+            before = len(mesh_files)
+            mesh_files = [
+                f for f in mesh_files
+                if vlm_meta.get(f.stem, {}).get("pass", False)
+            ]
+            filtered = before - len(mesh_files)
+            if filtered > 0:
+                logger.info(
+                    f"VLM QA フィルタ: {before} 件 → {len(mesh_files)} 件 "
+                    f"({filtered} 件を除外: pass=False または未評価)"
+                )
+
         total = len(mesh_files)
         logger.info(f"物理付与バッチ開始: {total} 件 → {output_dir}")
 
@@ -400,6 +456,10 @@ class PhysicsProcessor:
                 material=material,
                 luggage_type=luggage_type,
                 coacd_threshold=coacd_threshold,
+                coacd_max_convex_hull=coacd_max_convex_hull,
+                coacd_max_ch_vertex=coacd_max_ch_vertex,
+                coacd_resolution=coacd_resolution,
+                coacd_mcts_iterations=coacd_mcts_iterations,
             )
             results.append(result)
 

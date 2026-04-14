@@ -1,0 +1,50 @@
+# =============================================================================
+# AL3DG .dockerignore
+# Docker ビルドコンテキストから除外するファイル
+# =============================================================================
+
+# ---- 生成成果物（ボリュームマウントで提供）----
+outputs/
+outputs_backup/
+
+# ---- モデルウェイト（ボリュームマウントで提供）----
+models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.gguf
+*.onnx
+
+# ---- Python 環境 ----
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# ---- Git / IDE ----
+.git/
+.gitignore
+.claude/
+.codex
+.vscode/
+.idea/
+
+# ---- テスト・カバレッジ ----
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ---- ログ ----
+*.log
+logs/
+
+# ---- 機密ファイル ----
+GitRequest.md
+.env
+*.env

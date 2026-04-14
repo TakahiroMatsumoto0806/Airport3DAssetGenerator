@@ -1,0 +1,58 @@
+# =============================================================================
+# AL3DG docker-compose.yml
+# DGX Spark (Grace Blackwell GB10, 128GB unified memory) 向け
+#
+# 使い方:
+#   docker compose build          # イメージビルド
+#   docker compose up             # パイプライン実行
+#   docker compose run --rm al3dg python scripts/run_step.py --step mesh_qa
+#
+# 前提条件:
+#   - ~/models/ に Qwen3-VL-32B-Instruct / FLUX.1-schnell を配置済み
+#     （setup_from_share.sh または download_models.py で取得）
+#   - NVIDIA Container Toolkit インストール済み
+#     （sudo apt install nvidia-container-toolkit）
+# =============================================================================
+
+services:
+  al3dg:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: al3dg:latest
+
+    # ---- GPU アクセス ----
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      # headless rendering (pyrender / trimesh)
+      - PYOPENGL_PLATFORM=osmesa
+      # Hugging Face キャッシュをモデルボリューム内に統一
+      - HF_HOME=/models/hf_cache
+      - MODELS_DIR=/models
+
+    # ---- ボリューム ----
+    volumes:
+      # ホストの ~/models/ をコンテナにマウント（イメージに含めない）
+      - ${HOME}/models:/models
+      # 生成成果物をホストに永続化
+      - ./outputs:/workspace/al3dg/outputs
+
+    # ---- ネットワーク ----
+    ports:
+      - "8001:8001"   # vLLM サーバー
+
+    # ---- vLLM / PyTorch 推奨設定 ----
+    ipc: host
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack:
+        soft: 67108864
+        hard: 67108864
+    shm_size: "16gb"
+
+    # ---- デフォルトコマンド ----
+    command: ["python", "scripts/run_pipeline.py", "--help"]

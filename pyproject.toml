@@ -51,9 +51,6 @@ dependencies = [
     # ---- 凸分解 (CoACD) ----
     "coacd>=1.0.0",
 
-    # ---- 多様性評価 ----
-    "open-clip-torch>=2.26.0",
-    "scikit-learn>=1.5.0",     # t-SNE / UMAP は umap-learn で別途
     "numpy>=1.26.0",
 
     # ---- 設定管理 ----
@@ -100,4 +97,7 @@ select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --ignore=tests/test_gpu_models.py"
+markers = [
+    "gpu: requires a CUDA-capable GPU (DGX Spark)",
+]

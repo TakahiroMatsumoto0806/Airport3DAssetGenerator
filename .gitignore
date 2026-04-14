@@ -82,3 +82,16 @@ multirun/
 *.temp
 tmp/
 temp/
+
+# ---- Claude Code / IDE ----
+.claude/
+.codex
+
+# ---- 機密ファイル（PAT 等を含むため除外）----
+GitRequest.md
+
+# ---- バックアップ出力 ----
+outputs_backup/
+
+# ---- スケジューラロック ----
+.claude/scheduled_tasks.lock

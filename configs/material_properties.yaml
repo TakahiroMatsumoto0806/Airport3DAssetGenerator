@@ -3,7 +3,7 @@
 # AL3DG — T-1.1
 # =============================================================================
 # 各材質の物理シミュレーション用プロパティ
-# MuJoCo / Isaac Sim での使用を想定
+# Isaac Sim での使用を想定
 #
 # 各項目:
 #   density_kg_m3:        密度 (kg/m³)
@@ -14,7 +14,6 @@
 #
 # 参考値出典:
 #   - Engineering Toolbox (摩擦係数)
-#   - MuJoCo default material properties
 #   - Isaac Sim Physics Material Reference
 # =============================================================================
 
@@ -221,8 +220,6 @@ category_material_mapping:
   soft_suitcase: composite_soft_suitcase
   backpack: composite_backpack
   duffel_bag: nylon
-  tote_bag: canvas
-  briefcase: genuine_leather
   cardboard_box: cardboard
   hard_case: abs_plastic
   golf_bag: nylon

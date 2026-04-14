@@ -161,12 +161,15 @@ class TestPromptGeneratorBasic(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_prompt_length_reasonable(self):
-        """プロンプト長が適切な範囲であること（20〜400 文字）"""
+        """プロンプト長が適切な範囲であること（20〜900 文字）。
+        A-2/A-3 で受託手荷物状態フレーズ・カテゴリ別状態フレーズが追加されたため、
+        上限を 900 文字に更新（LLM リファイン後は 60-75 語以内に圧縮される）。
+        """
         prompts = self.gen.generate_combinatorial(n=50)
         for i, p in enumerate(prompts):
             length = len(p["prompt"])
             self.assertGreater(length, 20, f"[{i}] プロンプトが短すぎる: {length}")
-            self.assertLess(length, 400, f"[{i}] プロンプトが長すぎる: {length}")
+            self.assertLess(length, 900, f"[{i}] プロンプトが長すぎる: {length}")
 
     # ------------------------------------------------------------------
     # 再現性テスト
@@ -315,71 +318,164 @@ class TestPromptGeneratorStatistics(unittest.TestCase):
 class TestPromptGeneratorLLMRefinement(unittest.TestCase):
     """LLM リファイン（モック）テスト"""
 
+    # リファイン後の期待プロンプト（冗長タグを除去した 60-75 words の例）
+    _REFINED_PROMPT = (
+        "single product photo, object centered, medium travel duffel with handles, "
+        "glossy black, heavy-duty canvas, modern minimalist design, brand new, "
+        "solid white background, flat studio lighting, no background shadows, frontal view, "
+        "fully visible, photorealistic"
+    )
+
     def setUp(self):
         self.gen = PromptGenerator(config_dir=str(CONFIG_DIR), seed=42)
 
-    def test_llm_refinement_mock(self):
-        """LLM リファインがモック経由で動作し、refined フラグが立つこと"""
-        base_prompts = self.gen.generate_combinatorial(n=3)
-
-        # openai.OpenAI のモック
+    def _make_mock_client(self, refined_text: str) -> MagicMock:
+        """OpenAI クライアントをモック化する"""
         mock_choice = MagicMock()
-        mock_choice.message.content = (
-            "A sleek black polycarbonate carry-on suitcase with spinner wheels, "
-            "studio lighting, on pure white background, photorealistic"
-        )
+        mock_choice.message.content = refined_text
         mock_response = MagicMock()
         mock_response.choices = [mock_choice]
-
-        mock_model = MagicMock()
-        mock_model.id = "Qwen/Qwen3-VL-32B-Instruct"
-        mock_models_response = MagicMock()
-        mock_models_response.data = [mock_model]
-
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
-        mock_client.models.list.return_value = mock_models_response
+        return mock_client
 
-        with patch("src.prompt_generator.PromptGenerator.generate_with_llm_refinement") as mock_refine:
-            # モック: refined=True のメタデータを付与して返す
-            def fake_refine(base, **kwargs):
-                result = []
-                for item in base:
-                    result.append({
-                        **item,
-                        "prompt": mock_choice.message.content,
-                        "metadata": {**item["metadata"], "refined": True, "original_prompt": item["prompt"]},
-                    })
-                return result
+    def test_llm_refinement_mock(self):
+        """LLM リファインが OpenAI クライアント経由で動作し、refined メタデータが付与されること"""
+        base_prompts = self.gen.generate_combinatorial(n=3)
 
-            mock_refine.side_effect = fake_refine
+        with patch.object(self.gen.__class__, "_wait_for_vllm", return_value=None), \
+             patch("openai.OpenAI", return_value=self._make_mock_client(self._REFINED_PROMPT)):
+            refined = self.gen.generate_with_llm_refinement(base_prompts)
+
+        self.assertEqual(len(refined), 3)
+        for i, r in enumerate(refined):
+            self.assertIn("metadata", r, f"[{i}] metadata なし")
+            self.assertTrue(r["metadata"].get("refined"), f"[{i}] refined フラグが立っていない")
+            self.assertIn("original_prompt", r["metadata"], f"[{i}] original_prompt が保存されていない")
+            # リファイン後のプロンプトが元プロンプトと異なること
+            self.assertNotEqual(r["prompt"], r["metadata"]["original_prompt"],
+                                f"[{i}] リファイン結果が元プロンプトと同じ")
+
+    def test_llm_refinement_output_fits_clip_budget(self):
+        """リファイン後プロンプトが CLIP 77 token 目標（≈ 350 字 / 75 words）以内であること"""
+        base_prompts = self.gen.generate_combinatorial(n=5)
+
+        with patch.object(self.gen.__class__, "_wait_for_vllm", return_value=None), \
+             patch("openai.OpenAI", return_value=self._make_mock_client(self._REFINED_PROMPT)):
             refined = self.gen.generate_with_llm_refinement(base_prompts)
 
         for i, r in enumerate(refined):
-            self.assertIn("metadata", r, f"[{i}] metadata なし")
-
-    def test_llm_refinement_fallback_on_error(self):
-        """vLLM サーバーが利用不可の場合、元プロンプトが維持されること"""
-        base_prompts = self.gen.generate_combinatorial(n=3)
-        original_texts = [p["prompt"] for p in base_prompts]
-
-        # openai が ImportError を返すケースをシミュレート
-        with patch.dict("sys.modules", {"openai": None}):
-            # openai なしの場合は base_prompts をそのまま返す
-            import importlib
-            import src.prompt_generator as pg_module
-            importlib.reload(pg_module)
-            gen2 = pg_module.PromptGenerator(config_dir=str(CONFIG_DIR), seed=42)
-            result = gen2.generate_with_llm_refinement(base_prompts)
-
-        # 元プロンプトが維持されていること
-        self.assertEqual(len(result), len(base_prompts))
-        for i, (orig, res) in enumerate(zip(original_texts, result)):
-            self.assertEqual(
-                orig,
-                res["prompt"],
-                f"[{i}] エラー時に元プロンプトが変更された",
+            length = len(r["prompt"])
+            words = len(r["prompt"].split())
+            self.assertLessEqual(
+                words, 80,
+                f"[{i}] リファイン後プロンプトが 80 words を超えている: {words} words"
             )
+            self.assertLessEqual(
+                length, 400,
+                f"[{i}] リファイン後プロンプトが 400 字を超えている: {length} 字"
+            )
+
+    def test_llm_refinement_vllm_unavailable_raises(self):
+        """vLLM サーバーが起動していない場合 RuntimeError で異常終了すること"""
+        base_prompts = self.gen.generate_combinatorial(n=2)
+
+        # _wait_for_vllm が即タイムアウトするようモック
+        with patch.object(
+            self.gen.__class__, "_wait_for_vllm",
+            side_effect=RuntimeError(
+                "[PromptGenerator] vLLM サーバーに接続できませんでした。\n"
+                "  URL      : http://localhost:8001/health\n"
+                "  待機時間 : 300 秒"
+            )
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                self.gen.generate_with_llm_refinement(base_prompts)
+
+        self.assertIn("vLLM", str(ctx.exception))
+        self.assertIn("接続できませんでした", str(ctx.exception))
+
+    def test_llm_refinement_vllm_unavailable_error_contains_instructions(self):
+        """RuntimeError メッセージに対処方法が含まれること"""
+        base_prompts = self.gen.generate_combinatorial(n=1)
+
+        with patch.object(
+            self.gen.__class__, "_wait_for_vllm",
+            side_effect=RuntimeError(
+                "[PromptGenerator] vLLM サーバーに接続できませんでした。\n"
+                "  対処方法 : vLLM サーバーを起動してから再実行してください。"
+            )
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                self.gen.generate_with_llm_refinement(base_prompts)
+
+        self.assertIn("対処方法", str(ctx.exception))
+
+    def test_wait_for_vllm_returns_immediately_when_available(self):
+        """ヘルスチェックが 200 を返す場合 RuntimeError を送出しないこと"""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+
+        with patch("src.prompt_generator.PromptGenerator._wait_for_vllm") as mock_wait:
+            mock_wait.return_value = None  # 正常終了
+            # _wait_for_vllm が呼ばれてもエラーにならないことを確認
+            with patch("openai.OpenAI", return_value=self._make_mock_client(self._REFINED_PROMPT)):
+                base_prompts = self.gen.generate_combinatorial(n=1)
+                result = self.gen.generate_with_llm_refinement(base_prompts)
+        self.assertEqual(len(result), 1)
+
+    def test_wait_for_vllm_raises_after_timeout(self):
+        """_wait_for_vllm がタイムアウト後に RuntimeError を送出すること"""
+        # 存在しないポートに極短タイムアウトで接続 → 即タイムアウト
+        with self.assertRaises(RuntimeError) as ctx:
+            self.gen._wait_for_vllm(
+                "http://localhost:19999/v1",
+                timeout=0.1,         # 実質即タイムアウト
+                poll_interval=0.05,
+            )
+        self.assertIn("接続できませんでした", str(ctx.exception))
+
+
+class TestCheckedBaggagePromptQuality(unittest.TestCase):
+    """A-1/A-2/A-3: 受託手荷物プロンプト品質テスト"""
+
+    def setUp(self):
+        self.gen = PromptGenerator(config_dir=str(CONFIG_DIR), seed=42)
+
+    # ---- A-1: 機内持ち込みサブカテゴリが生成されないこと ----
+
+    def test_a1_hard_suitcase_no_carry_on(self):
+        """hard_suitcase の carry_on サブカテゴリが生成されないこと"""
+        from omegaconf import OmegaConf
+        type_cfg = self.gen._templates.attributes.type
+        sub_keys = list(OmegaConf.to_container(type_cfg.hard_suitcase).keys())
+        self.assertNotIn("carry_on", sub_keys, "hard_suitcase に carry_on サブカテゴリが残っている")
+
+    def test_a1_soft_suitcase_no_carry_on(self):
+        """soft_suitcase の carry_on サブカテゴリが生成されないこと"""
+        from omegaconf import OmegaConf
+        type_cfg = self.gen._templates.attributes.type
+        sub_keys = list(OmegaConf.to_container(type_cfg.soft_suitcase).keys())
+        self.assertNotIn("carry_on", sub_keys, "soft_suitcase に carry_on サブカテゴリが残っている")
+
+    def test_a1_backpack_no_daypack(self):
+        """backpack の daypack サブカテゴリが生成されないこと"""
+        from omegaconf import OmegaConf
+        type_cfg = self.gen._templates.attributes.type
+        sub_keys = list(OmegaConf.to_container(type_cfg.backpack).keys())
+        self.assertNotIn("daypack", sub_keys, "backpack に daypack サブカテゴリが残っている")
+
+    def test_a1_large_scale_no_carry_on_subcategory(self):
+        """1500件生成して carry_on / daypack がメタデータに現れないこと"""
+        prompts = self.gen.generate_combinatorial(n=1500)
+        for p in prompts:
+            sub = p["metadata"]["subcategory"]
+            cat = p["metadata"]["luggage_type"]
+            if cat in ("hard_suitcase", "soft_suitcase"):
+                self.assertNotEqual(sub, "carry_on", f"{cat} に carry_on が生成された")
+            if cat == "backpack":
+                self.assertNotEqual(sub, "daypack", f"backpack に daypack が生成された")
+
 
 
 if __name__ == "__main__":

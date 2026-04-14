@@ -50,6 +50,21 @@ def _make_real_glb(path: Path) -> Path:
     return path
 
 
+def _make_tensor_like(arr: "np.ndarray") -> MagicMock:
+    """
+    torch.Tensor を模倣するモック。
+    .cpu().float().numpy() / .cpu().numpy() / .to(device) パターンに対応する。
+    """
+    m = MagicMock()
+    m.cpu.return_value = m
+    m.float.return_value = m
+    m.to.return_value = m
+    m.numpy.return_value = arr
+    m.clamp.return_value = m   # clamp() も self を返してチェーン可能にする
+    m.tolist.return_value = arr.tolist() if hasattr(arr, "tolist") else list(arr)
+    return m
+
+
 def _build_sys_modules_patch(n_vertices: int = 10000) -> tuple:
     """
     sys.modules に注入するモジュールモックと関連オブジェクトを返す。
@@ -59,16 +74,36 @@ def _build_sys_modules_patch(n_vertices: int = 10000) -> tuple:
     """
     import numpy as np
 
+    # --- mesh モック用データ ---
+    # _export_glb_trimesh と _query_vertex_attrs_torch の両方が
+    # .cpu().float().numpy() パターンを必要とするため、tensor-like モックを使う。
+    n_voxels = max(10, n_vertices // 100)
+    n_faces = max(3, n_vertices // 100)
+    C = 6  # [base_color_R, G, B, metallic, roughness, alpha]
+
+    verts_np   = np.zeros((n_vertices, 3), dtype=np.float32)
+    # 全面が頂点 0,1,2 を参照する最小有効メッシュ
+    faces_np   = np.tile([0, 1, 2], (n_faces, 1)).astype(np.int32)
+    coords_np  = np.zeros((n_voxels, 3), dtype=np.float32)
+    attrs_np   = np.full((n_voxels, C), 0.5, dtype=np.float32)
+    origin_np  = np.array([-0.5, -0.5, -0.5], dtype=np.float32)
+
     # --- mesh モック ---
     mesh_mock = MagicMock()
-    mesh_mock.vertices = np.zeros((n_vertices, 3), dtype=np.float32)
-    mesh_mock.faces = MagicMock()
-    mesh_mock.attrs = MagicMock()
-    mesh_mock.coords = MagicMock()
-    mesh_mock.layout = MagicMock()
+    mesh_mock.vertices  = _make_tensor_like(verts_np)
+    mesh_mock.faces     = _make_tensor_like(faces_np)
+    mesh_mock.attrs     = _make_tensor_like(attrs_np)
+    mesh_mock.coords    = _make_tensor_like(coords_np)
+    mesh_mock.origin    = _make_tensor_like(origin_np)
     mesh_mock.voxel_size = 0.01
+    mesh_mock.layout    = {
+        "base_color": slice(0, 3),
+        "metallic":   slice(3, 4),
+        "roughness":  slice(4, 5),
+        "alpha":      slice(5, 6),
+    }
 
-    # --- o_voxel.postprocess.to_glb ---
+    # --- o_voxel.postprocess.to_glb (後方互換のため残す) ---
     glb_mock = MagicMock()
     captured_exports = []
 
@@ -94,13 +129,29 @@ def _build_sys_modules_patch(n_vertices: int = 10000) -> tuple:
     mock_trellis2_pipelines = MagicMock()
     mock_trellis2_pipelines.Trellis2ImageTo3DPipeline = mock_pipeline_cls
 
+    # mesh_generator は `from trellis2.pipelines.trellis2_image_to_3d import ...` を使う
+    mock_trellis2_img3d = MagicMock()
+    mock_trellis2_img3d.Trellis2ImageTo3DPipeline = mock_pipeline_cls
+
     # --- torch ---
+    # torch.tensor() が _query_vertex_attrs_torch() 内で呼ばれるため、
+    # 戻り値が .clamp().cpu().numpy() パターンをサポートするようにする。
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = True
+    mock_torch.cuda.memory_reserved.return_value = 0
+    mock_torch.cuda.memory_allocated.return_value = 0
+
+    def _fake_torch_tensor(data, dtype=None):
+        import numpy as np
+        arr = np.clip(np.asarray(data, dtype=np.float32), 0.0, 1.0)
+        return _make_tensor_like(arr)
+
+    mock_torch.tensor.side_effect = _fake_torch_tensor
 
     modules = {
         "trellis2": MagicMock(),
         "trellis2.pipelines": mock_trellis2_pipelines,
+        "trellis2.pipelines.trellis2_image_to_3d": mock_trellis2_img3d,
         "o_voxel": mock_o_voxel,
         "torch": mock_torch,
         "cv2": MagicMock(),
@@ -161,12 +212,14 @@ class TestMeshGeneratorInit(unittest.TestCase):
     def test_init_loads_pipeline(self):
         """from_pretrained と cuda() が呼ばれること"""
         modules, mock_pipeline, _, _, mock_torch, _ = _build_sys_modules_patch()
-        mock_pipeline_cls = modules["trellis2.pipelines"].Trellis2ImageTo3DPipeline
+        # mesh_generator は trellis2.pipelines.trellis2_image_to_3d サブモジュールから import する
+        mock_pipeline_cls = modules["trellis2.pipelines.trellis2_image_to_3d"].Trellis2ImageTo3DPipeline
 
         if "src.mesh_generator" in sys.modules:
             del sys.modules["src.mesh_generator"]
 
-        with patch.dict("sys.modules", modules):
+        with patch.dict("sys.modules", modules), \
+             patch("src.utils.memory_guard.assert_memory_headroom"):
             from src.mesh_generator import MeshGenerator
             MeshGenerator("/fake/trellis")
 
@@ -250,23 +303,19 @@ class TestMeshGeneratorSingle(_MeshGenTestBase):
         with self.assertRaises(FileNotFoundError):
             self.gen.generate_single("/nonexistent/image.png")
 
-    def test_seed_calls_set_seed(self):
-        """generate_single() が _set_seed(seed) を呼ぶこと"""
-        called = []
-        self.gen._set_seed = lambda s: called.append(s)
-
+    def test_seed_passed_to_pipeline_run(self):
+        """generate_single(seed=77) が pipeline.run() に seed=77 を渡すこと"""
         img_path = Path(self.tmpdir) / "test.png"
         _make_test_image(img_path)
         glb_path = Path(self.tmpdir) / "test.glb"
 
         self.gen.generate_single(str(img_path), seed=77, output_path=str(glb_path))
 
-        self.assertIn(77, called, "seed=77 が _set_seed に渡されていない")
+        call_kwargs = self.mock_pipeline.run.call_args[1]
+        self.assertEqual(call_kwargs.get("seed"), 77, "seed=77 が pipeline.run に渡されていない")
 
     def test_pipeline_run_called_with_pil_image(self):
         """pipeline.run() が PIL.Image を受け取ること"""
-        from PIL import Image as PILImage
-
         img_path = Path(self.tmpdir) / "test.png"
         _make_test_image(img_path)
         glb_path = Path(self.tmpdir) / "test.glb"
@@ -275,35 +324,38 @@ class TestMeshGeneratorSingle(_MeshGenTestBase):
 
         self.mock_pipeline.run.assert_called_once()
         arg = self.mock_pipeline.run.call_args[0][0]
-        self.assertIsInstance(arg, PILImage.Image)
+        # patch.dict 環境では PIL クラスの同一性が崩れることがあるため、
+        # isinstance の代わりに型名・属性で確認する
+        self.assertEqual(type(arg).__name__, "Image", f"PIL Image が渡されていない: {type(arg)}")
+        self.assertEqual(arg.mode, "RGB")
+        self.assertEqual(arg.size, (512, 512))
 
-    def test_texture_size_passed_to_to_glb(self):
-        """texture_size=1024 が to_glb() に渡されること"""
+    def test_texture_size_parameter_accepted(self):
+        """texture_size パラメータが受け入れられること（将来用、現在は vertex color 出力）"""
         img_path = Path(self.tmpdir) / "test.png"
         _make_test_image(img_path)
         glb_path = Path(self.tmpdir) / "test.glb"
 
+        # texture_size は将来用パラメータとして受け入れるだけ確認（例外が出ないこと）
         self.gen.generate_single(str(img_path), texture_size=1024, output_path=str(glb_path))
 
-        kwargs = self.mock_o_voxel.postprocess.to_glb.call_args[1]
-        self.assertEqual(kwargs["texture_size"], 1024)
-
-    def test_simplify_applied_to_mesh(self):
-        """simplify=0.95 のとき mesh.simplify() が頂点数×0.95 で呼ばれること"""
-        n = 20000
-        self.setUp(n_vertices=n)  # 明示的に頂点数を設定して再初期化
+    def test_alpha_forced_255_in_glb(self):
+        """GLB の頂点アルファが 255 (不透明) に固定されていること"""
+        import trimesh
 
         img_path = Path(self.tmpdir) / "test.png"
         _make_test_image(img_path)
         glb_path = Path(self.tmpdir) / "test.glb"
 
-        self.gen.generate_single(str(img_path), simplify=0.95, output_path=str(glb_path))
+        self.gen.generate_single(str(img_path), output_path=str(glb_path))
 
-        self.mesh_mock.simplify.assert_called_once()
-        target = self.mesh_mock.simplify.call_args[0][0]
-        expected = int(n * 0.95)
-        self.assertEqual(target, expected,
-                         f"simplify の頂点数が不正: {target} (期待: {expected})")
+        loaded = trimesh.load(str(glb_path))
+        if hasattr(loaded, "visual") and hasattr(loaded.visual, "vertex_colors"):
+            alpha = loaded.visual.vertex_colors[:, 3]
+            self.assertTrue(
+                (alpha == 255).all(),
+                f"アルファが 255 でない頂点が存在: min={alpha.min()}"
+            )
 
     def test_auto_output_path(self):
         """output_path=None のとき入力と同ディレクトリに .glb が生成されること"""

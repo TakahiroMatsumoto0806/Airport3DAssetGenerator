@@ -26,7 +26,7 @@ T-0.3: GPU 動作確認テスト
 注意:
     - TRELLIS.2 は conda 環境 "trellis2" のインストールが必要
       (setup_environment.sh または ~/trellis2/setup.sh を先に実行)
-    - Qwen テストは vLLM サーバー (http://localhost:8000) が起動済みであること
+    - Qwen テストは vLLM サーバー (http://localhost:8001) が起動済みであること
       または --start-vllm フラグを使用すること
 """
 
@@ -51,7 +51,7 @@ from loguru import logger
 setup_logger(log_file=PROJECT_ROOT / "outputs" / "reports" / "test_gpu_models.log")
 
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", Path.home() / "models"))
-VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
+VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://localhost:8001/v1")
 MAX_MEMORY_GB = 128.0
 
 # モデルパス解決（ローカルが優先、なければ HF ID で fallback）
@@ -277,7 +277,7 @@ def _start_vllm_server() -> subprocess.Popen:
             "--dtype", "bfloat16",
             "--max-model-len", "8192",
             "--host", "0.0.0.0",
-            "--port", "8000",
+            "--port", "8001",
             "--trust-remote-code",
         ],
         stdout=subprocess.PIPE,
@@ -288,7 +288,7 @@ def _start_vllm_server() -> subprocess.Popen:
     for _ in range(120):
         time.sleep(1)
         try:
-            urllib.request.urlopen(f"http://localhost:8000/health", timeout=2)
+            urllib.request.urlopen(f"http://localhost:8001/health", timeout=2)
             logger.info("vLLM サーバー起動完了")
             return proc
         except Exception:

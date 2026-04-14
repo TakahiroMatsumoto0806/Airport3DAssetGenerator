@@ -34,7 +34,6 @@ def _make_cfg(tmpdir: str) -> object:
             "t3_mesh_vlm_qa": True,
             "t4_physics": True,
             "t4_sim_export": True,
-            "t5_diversity_report": True,
         },
         "paths": {
             "prompts_dir": f"{tmpdir}/prompts",
@@ -49,10 +48,8 @@ def _make_cfg(tmpdir: str) -> object:
             "flux": {"model_id": "test/flux", "model_dir": "/tmp/flux",
                      "device": "cpu", "dtype": "float32", "num_inference_steps": 1},
             "trellis": {"model_dir": "/tmp/trellis"},
-            "vlm": {"base_url": "http://localhost:8000/v1",
+            "vlm": {"base_url": "http://localhost:8001/v1",
                     "model_name": "test/vlm", "temperature": 0.1, "max_tokens": 256},
-            "clip": {"model_name": "ViT-L-14",
-                     "pretrained": "datacomp_xl_s13b_b90k", "device": "cpu"},
         },
         "prompt_generation": {
             "configs_dir": "configs",
@@ -97,11 +94,6 @@ def _make_cfg(tmpdir: str) -> object:
             "output_dir": f"{tmpdir}/assets_final",
             "format": "both", "resume": True,
         },
-        "diversity": {
-            "output_dir": f"{tmpdir}/reports",
-            "near_dup_threshold": 0.95, "embed_batch_size": 32,
-            "size_realism_refs": {},
-        },
     }
     return OmegaConf.create(raw)
 
@@ -127,13 +119,12 @@ class TestPipelineInit(unittest.TestCase):
         steps = pipeline._resolve_steps(None)
         self.assertIn("prompt", steps)
         self.assertIn("image", steps)
-        self.assertIn("diversity", steps)
 
     def test_resolve_steps_explicit(self):
         """明示的にリストを渡したときそのまま返ること"""
         pipeline = AL3DGPipeline(self.cfg)
-        steps = pipeline._resolve_steps(["prompt", "diversity"])
-        self.assertEqual(steps, ["prompt", "diversity"])
+        steps = pipeline._resolve_steps(["prompt", "sim_export"])
+        self.assertEqual(steps, ["prompt", "sim_export"])
 
     def test_resolve_steps_disabled(self):
         """cfg.steps で False にしたステップは除外されること"""
@@ -187,8 +178,7 @@ class TestPipelineRun(unittest.TestCase):
     @patch("src.pipeline.AL3DGPipeline.run_mesh_vlm_qa", return_value={"approved": 2, "rejected": 0})
     @patch("src.pipeline.AL3DGPipeline.run_physics", return_value={"success": 2, "failed": 0})
     @patch("src.pipeline.AL3DGPipeline.run_sim_export", return_value={"success": 2, "failed": 0})
-    @patch("src.pipeline.AL3DGPipeline.run_diversity_report", return_value={"html_path": "/tmp/r.html"})
-    def test_run_calls_all_steps(self, mock_div, mock_exp, mock_phys, mock_vlm,
+    def test_run_calls_all_steps(self, mock_exp, mock_phys, mock_vlm,
                                   mock_mqa, mock_mesh, mock_iqa, mock_img, mock_prm):
         """run() が全ステップを呼び出すこと"""
         pipeline = AL3DGPipeline(self.cfg)
@@ -201,18 +191,14 @@ class TestPipelineRun(unittest.TestCase):
         mock_vlm.assert_called_once()
         mock_phys.assert_called_once()
         mock_exp.assert_called_once()
-        mock_div.assert_called_once()
         self.assertIn("prompt", results)
-        self.assertIn("diversity", results)
 
     @patch("src.pipeline.AL3DGPipeline.run_prompt_generation", return_value={"count": 2})
-    @patch("src.pipeline.AL3DGPipeline.run_diversity_report", return_value={"html_path": "/tmp/r.html"})
-    def test_run_selective_steps(self, mock_div, mock_prm):
+    def test_run_selective_steps(self, mock_prm):
         """steps= で指定したステップだけ実行されること"""
         pipeline = AL3DGPipeline(self.cfg)
-        results = pipeline.run(steps=["prompt", "diversity"])
+        results = pipeline.run(steps=["prompt"])
         mock_prm.assert_called_once()
-        mock_div.assert_called_once()
         self.assertNotIn("image", results)
 
     @patch("src.pipeline.AL3DGPipeline.run_prompt_generation", return_value={"count": 2})
@@ -253,14 +239,14 @@ class TestPipelineConfigLoad(unittest.TestCase):
         cfg = OmegaConf.load(str(cfg_path))
         for key in ("t1_prompt_generation", "t2_image_generation", "t2_image_qa",
                     "t3_mesh_generation", "t3_mesh_qa", "t3_mesh_vlm_qa",
-                    "t4_physics", "t4_sim_export", "t5_diversity_report"):
+                    "t4_physics", "t4_sim_export"):
             self.assertIn(key, cfg.steps, f"steps.{key} が見つかりません")
 
     def test_config_has_model_sections(self):
         """pipeline_config.yaml にモデルセクションが含まれること"""
         cfg_path = Path(__file__).parent.parent / "configs" / "pipeline_config.yaml"
         cfg = OmegaConf.load(str(cfg_path))
-        for model in ("flux", "trellis", "vlm", "clip"):
+        for model in ("flux", "trellis", "vlm"):
             self.assertIn(model, cfg.models, f"models.{model} が見つかりません")
 
 

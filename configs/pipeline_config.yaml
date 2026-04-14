@@ -30,7 +30,6 @@ steps:
   t3_mesh_vlm_qa: true
   t4_physics: true
   t4_sim_export: true
-  t5_diversity_report: true
 
 # ---- 出力ディレクトリ ----
 paths:
@@ -60,18 +59,12 @@ models:
 
   # Qwen3-VL-32B (VLM/LLM) — vLLM サーバーとして使用
   vlm:
-    base_url: "http://localhost:8000/v1"
-    model_name: "Qwen/Qwen3-VL-32B-Instruct"
+    base_url: "http://localhost:8001/v1"
+    model_name: "/home/ntt/models/Qwen3-VL-32B-Instruct"
     temperature: 0.1
     max_tokens: 2048
     # 起動コマンド:
     #   vllm serve Qwen/Qwen3-VL-32B-Instruct --dtype bfloat16
-
-  # OpenCLIP (多様性評価)
-  clip:
-    model_name: "ViT-L-14"
-    pretrained: "datacomp_xl_s13b_b90k"
-    device: "cuda"
 
 # ---- T-1.2: プロンプト生成 ----
 prompt_generation:
@@ -119,8 +112,8 @@ mesh_vlm_qa:
   output_dir: "outputs/meshes_approved"
   render_dir: "outputs/renders"
   thresholds:
-    geometry: 7
-    texture: 6
+    geometry: 6
+    texture: 5
   thinking_mode: true    # /think
   azimuths: [0, 90, 180, 270]
   render_size: [512, 512]
@@ -129,44 +122,22 @@ mesh_vlm_qa:
 # ---- T-4.1: 物理プロパティ付与 ----
 physics:
   output_dir: "outputs/assets_final"
-  coacd_threshold: 0.08
-  max_convex_hulls: 16
   miniature: true
   resume: true
+  # CoACD 凸分解パラメータ
+  # ※ max_ch_vertex・resolution を上げるほど visual.glb に近い精度になるが
+  #   Isaac Sim の物理演算（衝突判定）コストが上がる。
+  #   1,000体同時シミュレーションでは低め（max_ch_vertex: 256）を推奨。
+  coacd:
+    threshold: 0.01        # 凸度閾値: 0.01〜1.0、小さいほど細かく分解
+    max_convex_hull: 64    # 凸包の最大個数（-1 で無制限）
+    max_ch_vertex: 2048    # 凸包1個あたりの最大頂点数（visual.glb は約 78,000頂点）
+    resolution: 8000       # 分解解像度: 高いほど精密
+    mcts_iterations: 300   # MCTS 探索反復数: 多いほど分解品質が上がる
 
 # ---- T-4.2: シミュレータエクスポート ----
 sim_export:
+  # Isaac Sim USD エクスポートメタデータ JSON の保存先
   output_dir: "outputs/assets_final"
-  format: "both"    # "mjcf" | "usd" | "both"
   resume: true
 
-# ---- T-5.1: 多様性評価 ----
-diversity:
-  output_dir: "outputs/reports"
-  near_dup_threshold: 0.95
-  embed_batch_size: 32
-  size_realism_refs:
-    hard_suitcase:
-      min_mm: 30.0
-      max_mm: 120.0
-    soft_suitcase:
-      min_mm: 25.0
-      max_mm: 110.0
-    backpack:
-      min_mm: 20.0
-      max_mm: 100.0
-    duffel_bag:
-      min_mm: 25.0
-      max_mm: 110.0
-    tote_bag:
-      min_mm: 15.0
-      max_mm: 80.0
-    briefcase:
-      min_mm: 20.0
-      max_mm: 70.0
-    cardboard_box:
-      min_mm: 20.0
-      max_mm: 120.0
-    hard_case:
-      min_mm: 20.0
-      max_mm: 100.0

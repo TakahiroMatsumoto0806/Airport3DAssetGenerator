@@ -78,7 +78,8 @@ def _make_prompt_list(n: int) -> list[dict]:
 class TestImageGeneratorInit(unittest.TestCase):
     """__init__ テスト"""
 
-    def test_init_loads_pipeline(self):
+    @patch("src.utils.memory_guard.assert_memory_headroom")
+    def test_init_loads_pipeline(self, _mock_headroom):
         """from_pretrained が呼ばれ、パイプラインが device に移動すること"""
         mock_cls, mock_pipe = _make_flux_mock()
 
@@ -129,15 +130,28 @@ class TestImageGeneratorSingle(unittest.TestCase):
             del sys.modules["src.image_generator"]
         from src.image_generator import ImageGenerator
 
-        return ImageGenerator(model_path="/fake/flux", device="cuda"), mock_torch
+        with patch("src.utils.memory_guard.assert_memory_headroom"):
+            gen = ImageGenerator(model_path="/fake/flux", device="cuda")
+        return gen, mock_torch
 
     def setUp(self):
         self.mock_cls, self.mock_pipe = _make_flux_mock(1024, 1024)
+        self._orig_torch = sys.modules.get("torch")
+        self._orig_diffusers = sys.modules.get("diffusers")
 
     def tearDown(self):
         for mod in ["src.image_generator"]:
             if mod in sys.modules:
                 del sys.modules[mod]
+        # restore real torch/diffusers so later tests are not polluted
+        if self._orig_torch is not None:
+            sys.modules["torch"] = self._orig_torch
+        else:
+            sys.modules.pop("torch", None)
+        if self._orig_diffusers is not None:
+            sys.modules["diffusers"] = self._orig_diffusers
+        else:
+            sys.modules.pop("diffusers", None)
 
     def test_returns_pil_image(self):
         """generate_single() が PIL.Image を返すこと"""
@@ -179,6 +193,9 @@ class TestImageGeneratorBatch(unittest.TestCase):
         """モック化した ImageGenerator をセットアップ"""
         from PIL import Image as PILImage
 
+        self._orig_torch = sys.modules.get("torch")
+        self._orig_diffusers = sys.modules.get("diffusers")
+
         self.dummy_image = PILImage.new("RGB", (1024, 1024), color=(200, 200, 200))
         mock_output = MagicMock()
         mock_output.images = [self.dummy_image]
@@ -200,7 +217,8 @@ class TestImageGeneratorBatch(unittest.TestCase):
             del sys.modules["src.image_generator"]
         from src.image_generator import ImageGenerator
 
-        self.gen = ImageGenerator(model_path="/fake/flux", device="cuda")
+        with patch("src.utils.memory_guard.assert_memory_headroom"):
+            self.gen = ImageGenerator(model_path="/fake/flux", device="cuda")
         self.tmpdir = tempfile.mkdtemp()
 
     def tearDown(self):
@@ -209,6 +227,14 @@ class TestImageGeneratorBatch(unittest.TestCase):
         for mod in ["src.image_generator"]:
             if mod in sys.modules:
                 del sys.modules[mod]
+        if self._orig_torch is not None:
+            sys.modules["torch"] = self._orig_torch
+        else:
+            sys.modules.pop("torch", None)
+        if self._orig_diffusers is not None:
+            sys.modules["diffusers"] = self._orig_diffusers
+        else:
+            sys.modules.pop("diffusers", None)
 
     # ---- 仕様書記載の必須テスト ----
 
@@ -370,6 +396,9 @@ class TestImageGeneratorUnload(unittest.TestCase):
     """unload() テスト"""
 
     def setUp(self):
+        self._orig_torch = sys.modules.get("torch")
+        self._orig_diffusers = sys.modules.get("diffusers")
+
         mock_cls, mock_pipe = _make_flux_mock()
         mock_torch = MagicMock()
         mock_torch.bfloat16 = "bfloat16"
@@ -377,18 +406,32 @@ class TestImageGeneratorUnload(unittest.TestCase):
         mock_diffusers = MagicMock()
         mock_diffusers.FluxPipeline = mock_cls
 
+        # flush_cuda_memory() が memory_reserved()/memory_allocated() を呼ぶため
+        # f-string フォーマット (.2f) が通るよう数値を返すよう設定
+        mock_torch.cuda.memory_reserved.return_value = 0
+        mock_torch.cuda.memory_allocated.return_value = 0
+
         sys.modules["torch"] = mock_torch
         sys.modules["diffusers"] = mock_diffusers
         if "src.image_generator" in sys.modules:
             del sys.modules["src.image_generator"]
         from src.image_generator import ImageGenerator
 
-        self.gen = ImageGenerator(model_path="/fake/flux", device="cuda")
+        with patch("src.utils.memory_guard.assert_memory_headroom"):
+            self.gen = ImageGenerator(model_path="/fake/flux", device="cuda")
         self.mock_torch = mock_torch
 
     def tearDown(self):
         if "src.image_generator" in sys.modules:
             del sys.modules["src.image_generator"]
+        if self._orig_torch is not None:
+            sys.modules["torch"] = self._orig_torch
+        else:
+            sys.modules.pop("torch", None)
+        if self._orig_diffusers is not None:
+            sys.modules["diffusers"] = self._orig_diffusers
+        else:
+            sys.modules.pop("diffusers", None)
 
     def test_unload_clears_pipe(self):
         """unload() 後に _pipe が None になること"""

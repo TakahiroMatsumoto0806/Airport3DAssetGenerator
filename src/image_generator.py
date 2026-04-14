@@ -20,6 +20,7 @@ FLUX.1-schnell を使った Text-to-Image 生成。
     gen.unload()           # 次工程のために明示的にアンロード
 """
 
+import csv
 import gc
 import json
 import os
@@ -54,6 +55,8 @@ class ImageGenerator:
                             "black-forest-labs/FLUX.1-schnell"
             device: 使用デバイス ("cuda" / "cpu")
         """
+        from src.utils.memory_guard import REQUIRED_GB, assert_memory_headroom
+
         import torch
         from diffusers import FluxPipeline
 
@@ -61,13 +64,25 @@ class ImageGenerator:
         self.device = device
         self._pipe = None
 
+        assert_memory_headroom(REQUIRED_GB["FLUX.1-schnell"], "FLUX.1-schnell")
         logger.info(f"FLUX.1-schnell ロード中: {model_path}")
         self._pipe = FluxPipeline.from_pretrained(
             model_path,
             torch_dtype=torch.bfloat16,
         )
-        self._pipe = self._pipe.to(device)
-        logger.info("FLUX.1-schnell ロード完了")
+        # GB10 統合メモリ環境で vLLM 等が同時稼働中の場合、
+        # enable_model_cpu_offload() で必要なレイヤーのみ GPU に移動する
+        # （to('cuda') は全ウェイトを CUDA アロケータに確保しようとして OOM になる）
+        try:
+            self._pipe = self._pipe.to(device)
+            logger.info("FLUX.1-schnell ロード完了 (full GPU)")
+        except (RuntimeError, Exception) as e:
+            if "out of memory" in str(e).lower() or "cudaerror" in str(e).lower():
+                logger.warning(f"GPU メモリ不足 ({e}) — CPU オフロードモードで再試行")
+                self._pipe.enable_model_cpu_offload()
+                logger.info("FLUX.1-schnell ロード完了 (CPU offload)")
+            else:
+                raise
 
     # ------------------------------------------------------------------
     # 内部ヘルパー
@@ -77,6 +92,33 @@ class ImageGenerator:
         """出力ファイル名を生成する"""
         safe_id = prompt_id[:12] if prompt_id else f"{idx:06d}"
         return f"{idx:06d}_{safe_id}.png"
+
+    def _load_image_generation_prompts_csv(self, csv_path: str) -> dict[int, str]:
+        """
+        image_generation_prompts.csv から修正済みプロンプトを読み込む。
+
+        Returns:
+            {id: final_prompt_for_flux} の辞書
+        """
+        result = {}
+        csv_path = Path(csv_path)
+
+        if not csv_path.exists():
+            return result
+
+        try:
+            with open(csv_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        result[int(row["id"])] = row["final_prompt_for_flux"]
+                    except (KeyError, ValueError):
+                        pass
+            logger.info(f"画像生成プロンプトCSV読み込み完了: {len(result)} 件")
+        except Exception as e:
+            logger.warning(f"画像生成プロンプトCSV読み込みエラー: {e}")
+
+        return result
 
     # ------------------------------------------------------------------
     # 公開 API
@@ -183,6 +225,15 @@ class ImageGenerator:
 
         logger.info(f"バッチ画像生成開始: {total} 件 → {output_dir}")
 
+        # CSV からプロンプト修正を読み込む（T-2.1 再実行時の対応）
+        csv_path = Path(output_dir).parent / "image_generation_prompts.csv"
+        prompt_overrides = self._load_image_generation_prompts_csv(str(csv_path))
+        if prompt_overrides:
+            logger.info(f"CSVから {len(prompt_overrides)} 件のプロンプト修正を読み込みました")
+            for idx, modified_prompt in prompt_overrides.items():
+                if idx < len(prompts):
+                    prompts[idx]["prompt"] = modified_prompt
+
         for idx, item in enumerate(prompts):
             prompt_text = item["prompt"]
             metadata = item.get("metadata", {})
@@ -275,17 +326,16 @@ class ImageGenerator:
         次工程 (VLM / TRELLIS.2) をロードする前に必ず呼び出すこと。
         逐次ロード戦略に従い、同時ロードを防ぐ。
         """
-        import torch
-
         if self._pipe is not None:
             logger.info("FLUX.1-schnell アンロード中...")
             del self._pipe
             self._pipe = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            logger.info("FLUX.1-schnell アンロード完了")
+            from src.utils.memory_guard import flush_cuda_memory
+            reserved, allocated = flush_cuda_memory()
+            logger.info(
+                f"FLUX.1-schnell アンロード完了 "
+                f"(CUDA reserved={reserved:.2f} GiB, allocated={allocated:.2f} GiB)"
+            )
 
     def __del__(self):
         try:

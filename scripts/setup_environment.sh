@@ -104,7 +104,7 @@ exec vllm serve "$MODEL" \
     --dtype bfloat16 \
     --max-model-len 8192 \
     --host 0.0.0.0 \
-    --port 8000 \
+    --port 8001 \
     --trust-remote-code
 EOF
 chmod +x "${SCRIPT_DIR}/start_vllm_server.sh"

@@ -4,7 +4,7 @@
 
 空港荷物コンテナ詰込ロボット向け Physical AI 学習データ用の 3D アセットを大量自動生成するパイプラインを DGX Spark 上に構築する。
 
-最終目標：1,000 個以上の PBR テクスチャ付き 3D アセット（USD / MJCF 形式、コリジョン・物理プロパティ付き）
+最終目標：1,000 個以上の PBR テクスチャ付き 3D アセット（Isaac Sim USD 形式、コリジョン・物理プロパティ付き）
 
 ---
 
@@ -46,7 +46,6 @@
 | メッシュ処理 | trimesh, Open3D | 品質チェック・修復 |
 | 凸分解 | CoACD | コリジョンメッシュ生成 |
 | 多様性評価 | open_clip (ViT-L/14) | CLIP埋め込み・Vendi Score |
-| MJCF変換 | obj2mjcf | MuJoCo用変換 |
 | レンダリング | pyrender / trimesh | オフスクリーンレンダリング |
 | 設定管理 | Hydra / OmegaConf | YAML設定 |
 | ログ | loguru | 構造化ログ |
@@ -85,7 +84,7 @@
 | メッシュ品質 | watertight、manifold、face count 5K〜100K |
 | 3D検品 | geometry ≥ 7、texture ≥ 6 |
 | 多様性 | Vendi Score および近似重複検出でレポート確認 |
-| エクスポート形式 | MJCF + USD変換メタデータ JSON |
+| エクスポート形式 | Isaac Sim USD 変換メタデータ JSON |
 | provenance | 全アセットに pass/review/reject を JSON で記録 |
 
 ---
@@ -137,7 +136,6 @@ al3dg/
 │   ├── meshes_approved/
 │   ├── assets_final/
 │   │   ├── isaac/
-│   │   ├── mjcf/
 │   │   ├── collisions/
 │   │   └── metadata/
 │   └── reports/

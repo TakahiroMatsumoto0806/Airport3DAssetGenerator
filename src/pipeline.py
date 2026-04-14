@@ -12,8 +12,7 @@ DGX Spark の逐次ロード制約に従い、1 モデルずつロード→実�
   T-3.2  メッシュ QA (trimesh / open3d)
   T-3.3  VLM マルチビュー QA (Qwen3-VL-32B + pyrender)
   T-4.1  物理プロパティ付与 (CoACD)
-  T-4.2  シミュレータエクスポート (MJCF / USD)
-  T-5.1  多様性評価レポート (OpenCLIP)
+  T-4.2  シミュレータエクスポート (Isaac Sim USD)
 
 使用例:
     from omegaconf import OmegaConf
@@ -92,9 +91,6 @@ class AL3DGPipeline:
         if "sim_export" in enabled:
             results["sim_export"] = self.run_sim_export(resume=resume)
 
-        if "diversity" in enabled:
-            results["diversity"] = self.run_diversity_report()
-
         logger.info("AL3DG パイプライン完了")
         self._save_run_summary(results)
         return results
@@ -110,7 +106,7 @@ class AL3DGPipeline:
 
         pg_cfg = self.cfg.get("prompt_generation", {})
         gen = PromptGenerator(
-            configs_dir=pg_cfg.get("configs_dir", "configs"),
+            config_dir=pg_cfg.get("configs_dir", "configs"),
             seed=pg_cfg.get("seed", 42),
         )
         output_file = pg_cfg.get("output_file", "outputs/prompts/prompts.json")
@@ -123,6 +119,18 @@ class AL3DGPipeline:
             json.dump(prompts, f, ensure_ascii=False, indent=2)
 
         logger.info(f"  プロンプト生成完了: {len(prompts)} 件 → {output_file}")
+
+        # prompt_review.html 生成（CSV が存在しない場合はスキップ）
+        try:
+            report_dir = Path(self.cfg.paths.get("reports_dir", "outputs/reports"))
+            report_dir.mkdir(parents=True, exist_ok=True)
+            gen.generate_html_report(
+                output_path=str(report_dir / "prompt_review.html"),
+            )
+            logger.info(f"  プロンプトレビュー: {report_dir / 'prompt_review.html'}")
+        except Exception as e:
+            logger.debug(f"  prompt_review.html 生成スキップ: {e}")
+
         return {"count": len(prompts), "output_file": output_file}
 
     def run_image_generation(self, resume: bool = True) -> dict:
@@ -141,24 +149,28 @@ class AL3DGPipeline:
             prompts = json.load(f)
 
         gen = ImageGenerator(
-            model_id=self.cfg.models.flux.get(
-                "model_id", "black-forest-labs/FLUX.1-schnell"
-            ),
+            model_path=str(Path(self.cfg.models.flux.get(
+                "model_dir", "~/models/FLUX.1-schnell"
+            )).expanduser()),
         )
-        gen.load_model()
         try:
-            result = gen.generate_batch(
+            result_list = gen.generate_batch(
                 prompts=prompts,
                 output_dir=output_dir,
                 num_inference_steps=img_cfg.get("num_inference_steps", 4),
                 guidance_scale=img_cfg.get("guidance_scale", 0.0),
                 width=img_cfg.get("width", 1024),
                 height=img_cfg.get("height", 1024),
-                resume=resume,
             )
         finally:
             gen.unload()
 
+        result = {
+            "success": sum(1 for r in result_list if r.get("status") == "generated"),
+            "skipped": sum(1 for r in result_list if r.get("status") == "skipped"),
+            "failed":  sum(1 for r in result_list if r.get("status") == "failed"),
+            "total":   len(result_list),
+        }
         logger.info(f"  画像生成完了: 成功={result['success']}, 失敗={result['failed']}")
         return result
 
@@ -169,23 +181,25 @@ class AL3DGPipeline:
 
         qa_cfg = self.cfg.get("image_qa", {})
         img_dir = self.cfg.image_generation.get("output_dir", "outputs/images")
-        image_paths = sorted(Path(img_dir).glob("*.png"))
+        approved_dir = qa_cfg.get("output_dir", "outputs/images_approved")
+        output_json = str(Path(approved_dir) / "image_qa_results.json")
 
         qa = ImageQA(
-            base_url=self.cfg.models.vlm.get("base_url", "http://localhost:8000/v1"),
+            vllm_base_url=self.cfg.models.vlm.get("base_url", "http://localhost:8001/v1"),
             model_name=self.cfg.models.vlm.get(
                 "model_name", "Qwen/Qwen3-VL-32B-Instruct"
             ),
+            thresholds=dict(qa_cfg.get("thresholds", {"realism": 7, "integrity": 7})),
         )
         result = qa.evaluate_batch(
-            image_paths=[str(p) for p in image_paths],
-            output_dir=qa_cfg.get("output_dir", "outputs/images_approved"),
-            thresholds=dict(qa_cfg.get("thresholds", {"realism": 7, "integrity": 7})),
+            image_dir=img_dir,
+            output_json=output_json,
+            approved_dir=approved_dir,
             resume=resume,
         )
 
         logger.info(
-            f"  画像QA完了: 合格={result.get('approved')}, "
+            f"  画像QA完了: 合格={result.get('passed')}, "
             f"不合格={result.get('rejected')}"
         )
         return result
@@ -196,29 +210,30 @@ class AL3DGPipeline:
         from src.mesh_generator import MeshGenerator
 
         mesh_cfg = self.cfg.get("mesh_generation", {})
-        approved_dir = self.cfg.image_qa.get(
-            "output_dir", "outputs/images_approved"
-        )
-        image_paths = sorted(Path(approved_dir).glob("*.png"))
+        approved_dir = self.cfg.image_qa.get("output_dir", "outputs/images_approved")
 
         gen = MeshGenerator(
-            model_dir=self.cfg.models.trellis.get(
+            model_path=self.cfg.models.trellis.get(
                 "model_dir", "~/models/TRELLIS-image-large"
             ),
         )
-        gen.load_model()
         try:
-            result = gen.generate_batch(
-                image_paths=[str(p) for p in image_paths],
+            result_list = gen.generate_batch(
+                image_dir=approved_dir,
                 output_dir=mesh_cfg.get("output_dir", "outputs/meshes_raw"),
-                seed=mesh_cfg.get("seed", 42),
-                resume=resume,
+                seed_offset=mesh_cfg.get("seed", 42),
             )
         finally:
             gen.unload()
 
+        result = {
+            "success": sum(1 for r in result_list if r.get("status") == "generated"),
+            "skipped": sum(1 for r in result_list if r.get("status") == "skipped"),
+            "failed":  sum(1 for r in result_list if r.get("status") == "failed"),
+            "total":   len(result_list),
+        }
         logger.info(
-            f"  3D生成完了: 成功={result.get('success')}, 失敗={result.get('failed')}"
+            f"  3D生成完了: 成功={result['success']}, 失敗={result['failed']}"
         )
         return result
 
@@ -228,26 +243,20 @@ class AL3DGPipeline:
         from src.mesh_qa import MeshQA
 
         qa_cfg = self.cfg.get("mesh_qa", {})
-        mesh_dir = self.cfg.mesh_generation.get(
-            "output_dir", "outputs/meshes_raw"
-        )
-        mesh_paths = sorted(Path(mesh_dir).glob("**/*.glb"))
+        mesh_dir = self.cfg.mesh_generation.get("output_dir", "outputs/meshes_raw")
+        approved_dir = qa_cfg.get("output_dir", "outputs/meshes_approved")
 
-        qa = MeshQA(
-            min_faces=qa_cfg.get("thresholds", {}).get("min_faces", 5000),
-            max_faces=qa_cfg.get("thresholds", {}).get("max_faces", 100000),
-            max_aspect_ratio=qa_cfg.get("thresholds", {}).get("max_aspect_ratio", 20.0),
-        )
+        qa = MeshQA()
         result = qa.check_batch(
-            mesh_paths=[str(p) for p in mesh_paths],
-            output_dir=qa_cfg.get("output_dir", "outputs/meshes_approved"),
-            repair=qa_cfg.get("repair", True),
-            resume=resume,
+            mesh_dir=mesh_dir,
+            output_json=str(Path(approved_dir) / "mesh_qa_results.json"),
+            approved_dir=approved_dir,
+            attempt_repair=qa_cfg.get("repair", True),
         )
 
         logger.info(
-            f"  メッシュQA完了: 合格={result.get('approved')}, "
-            f"不合格={result.get('rejected')}"
+            f"  メッシュQA完了: 合格={result.get('passed')}, "
+            f"不合格={result.get('failed')}"
         )
         return result
 
@@ -257,32 +266,27 @@ class AL3DGPipeline:
         from src.mesh_vlm_qa import MeshVLMQA
 
         qa_cfg = self.cfg.get("mesh_vlm_qa", {})
-        mesh_dir = self.cfg.mesh_qa.get(
-            "output_dir", "outputs/meshes_approved"
-        )
-        mesh_paths = sorted(Path(mesh_dir).glob("**/*.glb"))
+        mesh_dir = qa_cfg.get("output_dir", "outputs/meshes_approved")
+        output_json = str(Path(mesh_dir) / "vlm_qa_results.json")
 
         qa = MeshVLMQA(
-            base_url=self.cfg.models.vlm.get("base_url", "http://localhost:8000/v1"),
+            vllm_base_url=self.cfg.models.vlm.get("base_url", "http://localhost:8001/v1"),
             model_name=self.cfg.models.vlm.get(
                 "model_name", "Qwen/Qwen3-VL-32B-Instruct"
             ),
+            thresholds=dict(qa_cfg.get("thresholds", {"geometry": 7, "texture": 6})),
         )
         result = qa.evaluate_batch(
-            mesh_paths=[str(p) for p in mesh_paths],
-            output_dir=qa_cfg.get("output_dir", "outputs/meshes_approved"),
+            mesh_dir=mesh_dir,
+            output_json=output_json,
             render_dir=qa_cfg.get("render_dir", "outputs/renders"),
-            thresholds=dict(
-                qa_cfg.get("thresholds", {"geometry": 7, "texture": 6})
-            ),
-            azimuths=list(qa_cfg.get("azimuths", [0, 90, 180, 270])),
-            render_size=tuple(qa_cfg.get("render_size", [512, 512])),
+            views=len(list(qa_cfg.get("azimuths", [0, 90, 180, 270]))),
             resume=resume,
         )
 
         logger.info(
-            f"  VLM 3D QA完了: 合格={result.get('approved')}, "
-            f"不合格={result.get('rejected')}"
+            f"  VLM 3D QA完了: 合格={result.get('passed')}, "
+            f"不合格={result.get('failed')}"
         )
         return result
 
@@ -292,21 +296,24 @@ class AL3DGPipeline:
         from src.physics_processor import PhysicsProcessor
 
         phys_cfg = self.cfg.get("physics", {})
-        # T-3.3 合格済みメッシュ
-        mesh_dir = self.cfg.mesh_vlm_qa.get(
-            "output_dir", "outputs/meshes_approved"
-        )
-        mesh_paths = sorted(Path(mesh_dir).glob("**/*.glb"))
+        mesh_dir = self.cfg.mesh_vlm_qa.get("output_dir", "outputs/meshes_approved")
+        vlm_json = str(Path(mesh_dir) / "vlm_qa_results.json")
+        configs_dir = self.cfg.prompt_generation.get("configs_dir", "configs")
 
         proc = PhysicsProcessor(
-            configs_dir=self.cfg.prompt_generation.get("configs_dir", "configs"),
-            coacd_threshold=phys_cfg.get("coacd_threshold", 0.08),
-            max_convex_hulls=phys_cfg.get("max_convex_hulls", 16),
-            miniature=phys_cfg.get("miniature", True),
+            material_config_path=str(Path(configs_dir) / "material_properties.yaml"),
+            seed=42,
         )
+        coacd_cfg = phys_cfg.get("coacd", {})
         result = proc.process_batch(
-            mesh_paths=[str(p) for p in mesh_paths],
+            mesh_dir=mesh_dir,
             output_dir=phys_cfg.get("output_dir", "outputs/assets_final"),
+            metadata_json=vlm_json if Path(vlm_json).exists() else None,
+            coacd_threshold=coacd_cfg.get("threshold", 0.01),
+            coacd_max_convex_hull=coacd_cfg.get("max_convex_hull", 64),
+            coacd_max_ch_vertex=coacd_cfg.get("max_ch_vertex", 2048),
+            coacd_resolution=coacd_cfg.get("resolution", 8000),
+            coacd_mcts_iterations=coacd_cfg.get("mcts_iterations", 300),
             resume=resume,
         )
 
@@ -327,7 +334,6 @@ class AL3DGPipeline:
         result = exporter.export_batch(
             assets_dir=assets_dir,
             output_dir=exp_cfg.get("output_dir", "outputs/assets_final"),
-            format=exp_cfg.get("format", "both"),
             resume=resume,
         )
 
@@ -335,55 +341,6 @@ class AL3DGPipeline:
             f"  エクスポート完了: 成功={result.get('success')}, 失敗={result.get('failed')}"
         )
         return result
-
-    def run_diversity_report(self) -> dict:
-        """T-5.1: 多様性評価レポート"""
-        logger.info("=== T-5.1 多様性評価レポート ===")
-        from src.diversity_evaluator import DiversityEvaluator
-
-        div_cfg = self.cfg.get("diversity", {})
-        assets_dir = self.cfg.physics.get("output_dir", "outputs/assets_final")
-        output_dir = div_cfg.get("output_dir", "outputs/reports")
-
-        evaluator = DiversityEvaluator()
-
-        # アセット画像パス（visual.glb のレンダリング済み画像があれば使用）
-        image_paths = sorted(Path("outputs/renders").glob("**/*_0.png"))
-
-        embeddings = None
-        if image_paths:
-            evaluator.load_model(device=self.cfg.models.clip.get("device", "cuda"))
-            try:
-                embeddings = evaluator.compute_clip_embeddings(
-                    [str(p) for p in image_paths],
-                    batch_size=div_cfg.get("embed_batch_size", 32),
-                )
-            finally:
-                evaluator.unload()
-
-        # メタデータ収集
-        metadata_list: list[dict] = []
-        mesh_info_list: list[dict] = []
-        for phys_json in sorted(Path(assets_dir).glob("*/physics.json")):
-            with open(phys_json, encoding="utf-8") as f:
-                phys = json.load(f)
-            metadata_list.append(phys)
-            extents = phys.get("scale", {}).get("scaled_extents_mm")
-            if extents:
-                mesh_info_list.append({"scale": {"scaled_extents_mm": extents},
-                                       "luggage_type": phys.get("luggage_type")})
-
-        html_path = evaluator.generate_report(
-            output_dir=output_dir,
-            embeddings=embeddings,
-            image_paths=[str(p) for p in image_paths] if image_paths else None,
-            metadata_list=metadata_list or None,
-            mesh_info_list=mesh_info_list or None,
-            near_dup_threshold=div_cfg.get("near_dup_threshold", 0.95),
-        )
-
-        logger.info(f"  多様性レポート完了: {html_path}")
-        return {"html_path": html_path}
 
     # ------------------------------------------------------------------
     # 内部ヘルパー
@@ -400,7 +357,6 @@ class AL3DGPipeline:
             "t3_mesh_vlm_qa": "mesh_vlm_qa",
             "t4_physics": "physics",
             "t4_sim_export": "sim_export",
-            "t5_diversity_report": "diversity",
         }
         if steps is not None:
             return steps

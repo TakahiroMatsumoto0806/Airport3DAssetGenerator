@@ -113,11 +113,13 @@ class TestCheckSingle(unittest.TestCase):
             self.assertIn(key, result, f"必須キーが欠落: {key}")
 
     def test_non_watertight_detected(self):
-        """non-watertight メッシュが is_watertight=False かつ pass=False"""
+        """non-watertight メッシュが is_watertight=False として記録されること。
+        TRELLIS 出力はほぼ常に非 watertight のため、is_watertight は pass 条件に含まない。"""
         path = self._save(_make_non_watertight_mesh(), "non_wt.glb")
         result = self.qa.check_single(path)
         self.assertFalse(result["is_watertight"])
-        self.assertFalse(result["pass"])
+        # issues には "watertight でない" が記録される
+        self.assertTrue(any("watertight" in iss for iss in result["issues"]))
 
     def test_small_face_count_detected(self):
         """face_count < 5K のメッシュが face_count_ok=False かつ pass=False"""
@@ -162,8 +164,8 @@ class TestCheckSingle(unittest.TestCase):
         self.assertGreater(len(result["issues"]), 0)
 
     def test_issues_list_is_populated_for_bad_mesh(self):
-        """不合格メッシュでは issues が空でないこと"""
-        path = self._save(_make_non_watertight_mesh(), "issues.glb")
+        """不合格メッシュ（face_count < 5K）では issues が空でなく pass=False なこと"""
+        path = self._save(_make_small_face_count_mesh(), "issues.glb")
         result = self.qa.check_single(path)
         self.assertFalse(result["pass"])
         self.assertIsInstance(result["issues"], list)
@@ -247,7 +249,8 @@ class TestCheckBatch(unittest.TestCase):
             mesh.export(str(self.mesh_dir / f"good_{i:03d}.glb"), file_type="glb")
 
     def _create_bad_meshes(self, n: int) -> None:
-        mesh = _make_non_watertight_mesh()
+        # face_count < 5K → pass 条件 (face_count_ok) が False になる確実な不合格メッシュ
+        mesh = _make_small_face_count_mesh()
         for i in range(n):
             mesh.export(str(self.mesh_dir / f"bad_{i:03d}.glb"), file_type="glb")
 

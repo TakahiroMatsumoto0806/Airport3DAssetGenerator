@@ -44,9 +44,9 @@ class TestRunPipelineCLI(unittest.TestCase):
     def test_parse_args_steps(self):
         from scripts.run_pipeline import parse_args
         with patch.object(sys, "argv",
-                          ["run_pipeline.py", "--steps", "prompt", "diversity"]):
+                          ["run_pipeline.py", "--steps", "prompt", "sim_export"]):
             args = parse_args()
-        self.assertEqual(args.steps, ["prompt", "diversity"])
+        self.assertEqual(args.steps, ["prompt", "sim_export"])
 
     def test_parse_args_no_resume(self):
         from scripts.run_pipeline import parse_args
@@ -128,24 +128,6 @@ class TestRunStepCLI(unittest.TestCase):
         self.assertEqual(ret, 0)
         mock_instance.run_prompt_generation.assert_called_once()
 
-    @patch("scripts.run_step.AL3DGPipeline")
-    def test_sim_export_format_override(self, MockPipeline):
-        """--format mjcf が設定に反映されること"""
-        mock_instance = MagicMock()
-        mock_instance.run_sim_export.return_value = {"success": 1}
-        MockPipeline.return_value = mock_instance
-
-        cfg_path = Path(__file__).parent.parent / "configs" / "pipeline_config.yaml"
-        from scripts.run_step import main
-        with patch.object(sys, "argv",
-                          ["run_step.py", "--step", "sim_export",
-                           "--config", str(cfg_path), "--format", "mjcf"]):
-            ret = main()
-
-        self.assertEqual(ret, 0)
-        # format が "mjcf" にオーバーライドされていること
-        call_cfg = MockPipeline.call_args[0][0]
-        self.assertEqual(call_cfg.sim_export.format, "mjcf")
 
 
 # ============================================================
@@ -156,21 +138,6 @@ class TestGenerateReportCLI(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        # assets_final 作成
-        assets_dir = Path(self.tmpdir) / "assets_final"
-        assets_dir.mkdir(parents=True)
-        # ダミー physics.json
-        for i in range(3):
-            asset_dir = assets_dir / f"asset_{i:03d}"
-            asset_dir.mkdir()
-            phys = {
-                "asset_id": f"asset_{i:03d}",
-                "luggage_type": "hard_suitcase",
-                "mass_kg": 0.5,
-                "scale": {"scaled_extents_mm": [50.0, 35.0, 70.0]},
-            }
-            with open(asset_dir / "physics.json", "w") as f:
-                json.dump(phys, f)
 
     def tearDown(self):
         import shutil
@@ -180,52 +147,29 @@ class TestGenerateReportCLI(unittest.TestCase):
         from scripts.generate_report import parse_args
         with patch.object(sys, "argv", ["generate_report.py"]):
             args = parse_args()
-        self.assertFalse(args.no_clip)
-        self.assertEqual(args.threshold, 0.95)
+        self.assertEqual(args.step, "image_qa")
+        self.assertEqual(args.config, "configs/pipeline_config.yaml")
+        self.assertIsNone(args.output_dir)
 
-    def test_collect_metadata(self):
-        """collect_metadata が physics.json を正しく収集すること"""
-        from scripts.generate_report import collect_metadata
-        meta, mesh_info = collect_metadata(Path(self.tmpdir) / "assets_final")
-        self.assertEqual(len(meta), 3)
-        self.assertEqual(len(mesh_info), 3)
-        self.assertEqual(meta[0]["luggage_type"], "hard_suitcase")
+    def test_parse_args_step_pass_rate(self):
+        from scripts.generate_report import parse_args
+        with patch.object(sys, "argv", ["generate_report.py", "--step", "pass_rate"]):
+            args = parse_args()
+        self.assertEqual(args.step, "pass_rate")
 
-    @patch("scripts.generate_report.DiversityEvaluator")
-    def test_main_no_clip(self, MockEval):
-        """--no-clip でレポートが生成されること"""
-        mock_ev = MagicMock()
-        mock_ev.generate_report.return_value = str(
-            Path(self.tmpdir) / "reports" / "diversity_report.html"
-        )
-        mock_ev.check_size_realism.return_value = {
-            "realistic": 3, "unrealistic": 0, "unknown": 0, "total": 3,
-        }
-        MockEval.return_value = mock_ev
+    def test_parse_args_invalid_step_exits(self):
+        from scripts.generate_report import parse_args
+        with self.assertRaises(SystemExit):
+            with patch.object(sys, "argv", ["generate_report.py", "--step", "diversity"]):
+                parse_args()
 
-        cfg_path = Path(__file__).parent.parent / "configs" / "pipeline_config.yaml"
+    def test_missing_qa_results_returns_1(self):
+        """QA 結果ファイルが存在しない場合に main() が 1 を返すこと"""
         from scripts.generate_report import main
         with patch.object(sys, "argv", [
             "generate_report.py",
-            "--no-clip",
-            "--assets-dir", str(Path(self.tmpdir) / "assets_final"),
-            "--output-dir", str(Path(self.tmpdir) / "reports"),
-            "--config", str(cfg_path),
-        ]):
-            ret = main()
-
-        self.assertEqual(ret, 0)
-        mock_ev.generate_report.assert_called_once()
-        # CLIP 関連メソッドは呼ばれないこと
-        mock_ev.load_model.assert_not_called()
-        mock_ev.compute_clip_embeddings.assert_not_called()
-
-    def test_missing_assets_dir_returns_1(self):
-        from scripts.generate_report import main
-        with patch.object(sys, "argv", [
-            "generate_report.py",
-            "--no-clip",
-            "--assets-dir", "/nonexistent/assets",
+            "--step", "image_qa",
+            "--qa-results", "/nonexistent/qa_results.json",
         ]):
             ret = main()
         self.assertEqual(ret, 1)

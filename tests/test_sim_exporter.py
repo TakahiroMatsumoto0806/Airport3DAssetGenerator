@@ -6,7 +6,6 @@ import json
 import sys
 import tempfile
 import unittest
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import trimesh
@@ -57,111 +56,6 @@ def _make_asset_dir(tmpdir: str, asset_id: str = "test_asset",
 
 
 # ============================================================
-# export_mjcf テスト
-# ============================================================
-
-class TestExportMJCF(unittest.TestCase):
-
-    def setUp(self):
-        self.exporter = SimExporter()
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_mjcf_file_created(self):
-        """export_mjcf が XML ファイルを作成すること"""
-        asset_dir = _make_asset_dir(self.tmpdir)
-        output_dir = Path(self.tmpdir) / "mjcf"
-        mjcf_path = self.exporter.export_mjcf(str(asset_dir), str(output_dir))
-        self.assertTrue(Path(mjcf_path).exists())
-
-    def test_mjcf_returns_path_string(self):
-        """export_mjcf が文字列パスを返すこと"""
-        asset_dir = _make_asset_dir(self.tmpdir)
-        result = self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-        self.assertIsInstance(result, str)
-
-    def test_mjcf_valid_xml(self):
-        """出力された MJCF が有効な XML であること"""
-        asset_dir = _make_asset_dir(self.tmpdir)
-        mjcf_path = self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-        tree = ET.parse(mjcf_path)
-        root = tree.getroot()
-        self.assertEqual(root.tag, "mujoco")
-
-    def test_mjcf_contains_worldbody(self):
-        """MJCF に worldbody 要素が含まれること"""
-        asset_dir = _make_asset_dir(self.tmpdir)
-        mjcf_path = self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-        tree = ET.parse(mjcf_path)
-        self.assertIsNotNone(tree.getroot().find("worldbody"))
-
-    def test_mjcf_contains_asset(self):
-        """MJCF に asset 要素が含まれること"""
-        asset_dir = _make_asset_dir(self.tmpdir)
-        mjcf_path = self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-        tree = ET.parse(mjcf_path)
-        self.assertIsNotNone(tree.getroot().find("asset"))
-
-    def test_mjcf_contains_inertial(self):
-        """MJCF の body に inertial 要素が含まれること"""
-        asset_dir = _make_asset_dir(self.tmpdir)
-        mjcf_path = self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-        tree = ET.parse(mjcf_path)
-        body = tree.getroot().find(".//body")
-        self.assertIsNotNone(body)
-        self.assertIsNotNone(body.find("inertial"))
-
-    def test_mjcf_mass_from_physics_json(self):
-        """MJCF の inertial mass が physics.json の値と一致すること"""
-        asset_dir = _make_asset_dir(self.tmpdir)
-        mjcf_path = self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-        tree = ET.parse(mjcf_path)
-        inertial = tree.getroot().find(".//inertial")
-        mass = float(inertial.get("mass"))
-        self.assertAlmostEqual(mass, 0.2304, places=4)
-
-    def test_mjcf_collision_geoms_present(self):
-        """コリジョン geom が STL ファイル数と一致すること"""
-        asset_dir = _make_asset_dir(self.tmpdir, n_collisions=3)
-        mjcf_path = self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-        tree = ET.parse(mjcf_path)
-        col_geoms = [
-            g for g in tree.getroot().findall(".//geom")
-            if g.get("class") == "collision"
-        ]
-        self.assertEqual(len(col_geoms), 3)
-
-    def test_mjcf_visual_geom_present(self):
-        """visual geom が 1 つ存在すること"""
-        asset_dir = _make_asset_dir(self.tmpdir)
-        mjcf_path = self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-        tree = ET.parse(mjcf_path)
-        vis_geoms = [
-            g for g in tree.getroot().findall(".//geom")
-            if g.get("class") == "visual"
-        ]
-        self.assertEqual(len(vis_geoms), 1)
-
-    def test_mjcf_no_visual_glb_raises(self):
-        """visual.glb が存在しない場合 FileNotFoundError が送出されること"""
-        asset_dir = Path(self.tmpdir) / "empty_asset"
-        asset_dir.mkdir()
-        with self.assertRaises(FileNotFoundError):
-            self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-
-    def test_mjcf_freejoint_present(self):
-        """body に freejoint 要素が含まれること（自由落下可能）"""
-        asset_dir = _make_asset_dir(self.tmpdir)
-        mjcf_path = self.exporter.export_mjcf(str(asset_dir), str(Path(self.tmpdir) / "mjcf"))
-        tree = ET.parse(mjcf_path)
-        body = tree.getroot().find(".//body")
-        self.assertIsNotNone(body.find("freejoint"))
-
-
-# ============================================================
 # export_usd_metadata テスト
 # ============================================================
 
@@ -208,13 +102,105 @@ class TestExportUSDMetadata(unittest.TestCase):
             data = json.load(f)
         self.assertEqual(len(data["collision_mesh_paths"]), 3)
 
-    def test_json_usd_output_path_ends_with_usd(self):
-        """usd_output_path が .usd で終わること"""
+    def test_json_usd_output_path_ends_with_usda(self):
+        """usd_output_path が .usda で終わること"""
         asset_dir = _make_asset_dir(self.tmpdir)
         json_path = self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
         with open(json_path) as f:
             data = json.load(f)
-        self.assertTrue(data["usd_output_path"].endswith(".usd"))
+        self.assertTrue(data["usd_output_path"].endswith(".usda"))
+
+
+# ============================================================
+# USDA 生成テスト
+# ============================================================
+
+class TestUSDAGeneration(unittest.TestCase):
+
+    def setUp(self):
+        self.exporter = SimExporter()
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_usda_file_created(self):
+        """export_usd_metadata が .usda ファイルを生成すること"""
+        asset_dir = _make_asset_dir(self.tmpdir)
+        json_path = self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
+        asset_id = asset_dir.name
+        usda_path = Path(self.tmpdir) / f"{asset_id}.usda"
+        self.assertTrue(usda_path.exists(), f".usda が生成されていない: {usda_path}")
+
+    def test_usda_starts_with_header(self):
+        """USDA ファイルの先頭行が '#usda 1.0' であること"""
+        asset_dir = _make_asset_dir(self.tmpdir)
+        self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
+        asset_id = asset_dir.name
+        usda_path = Path(self.tmpdir) / f"{asset_id}.usda"
+        content = usda_path.read_text(encoding="utf-8")
+        self.assertTrue(content.startswith("#usda 1.0"), "先頭行が '#usda 1.0' でない")
+
+    def test_usda_contains_default_prim(self):
+        """USDA に 'defaultPrim' が含まれること"""
+        asset_dir = _make_asset_dir(self.tmpdir)
+        self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
+        asset_id = asset_dir.name
+        usda_path = Path(self.tmpdir) / f"{asset_id}.usda"
+        content = usda_path.read_text(encoding="utf-8")
+        self.assertIn("defaultPrim", content)
+
+    def test_usda_contains_visual_payload(self):
+        """USDA に visual.glb の payload 参照が含まれること（references は使わない）"""
+        asset_dir = _make_asset_dir(self.tmpdir)
+        self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
+        asset_id = asset_dir.name
+        usda_path = Path(self.tmpdir) / f"{asset_id}.usda"
+        content = usda_path.read_text(encoding="utf-8")
+        self.assertIn("@./visual.glb@", content)
+        self.assertIn("prepend payload = @./visual.glb@", content)
+        self.assertNotIn("prepend references", content)
+
+    def test_usda_collisions_prim_exists(self):
+        """USDA に collisions Xform が存在すること"""
+        asset_dir = _make_asset_dir(self.tmpdir)
+        self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
+        asset_id = asset_dir.name
+        usda_path = Path(self.tmpdir) / f"{asset_id}.usda"
+        content = usda_path.read_text(encoding="utf-8")
+        self.assertIn('def Xform "collisions"', content)
+
+    def test_usda_contains_physics_mass(self):
+        """USDA に physics.json の mass_kg が反映されること"""
+        asset_dir = _make_asset_dir(self.tmpdir)
+        self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
+        asset_id = asset_dir.name
+        usda_path = Path(self.tmpdir) / f"{asset_id}.usda"
+        content = usda_path.read_text(encoding="utf-8")
+        # physics.json の mass_kg = 0.2304
+        self.assertIn("0.2304", content)
+
+    def test_usda_contains_collision_mesh(self):
+        """USDA にコリジョン Mesh prim が含まれること"""
+        asset_dir = _make_asset_dir(self.tmpdir, n_collisions=2)
+        self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
+        asset_id = asset_dir.name
+        usda_path = Path(self.tmpdir) / f"{asset_id}.usda"
+        content = usda_path.read_text(encoding="utf-8")
+        self.assertIn('def Mesh "collision_000"', content)
+        self.assertIn('def Mesh "collision_001"', content)
+
+    def test_usda_physics_apis(self):
+        """USDA に PhysicsRigidBodyAPI / PhysicsMassAPI / PhysicsMaterialAPI が含まれること"""
+        asset_dir = _make_asset_dir(self.tmpdir)
+        self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
+        asset_id = asset_dir.name
+        usda_path = Path(self.tmpdir) / f"{asset_id}.usda"
+        content = usda_path.read_text(encoding="utf-8")
+        self.assertIn("PhysicsRigidBodyAPI", content)
+        self.assertIn("PhysicsMassAPI", content)
+        self.assertIn("PhysicsMaterialAPI", content)
 
 
 # ============================================================
@@ -256,21 +242,11 @@ class TestExportBatch(unittest.TestCase):
         result = self.exporter.export_batch(str(self.assets_dir), str(self.output_dir))
         self.assertEqual(result["total"], 0)
 
-    def test_batch_mjcf_only(self):
-        """format='mjcf' のとき MJCF だけ出力されること"""
-        self._create_assets(1)
-        result = self.exporter.export_batch(
-            str(self.assets_dir), str(self.output_dir), format="mjcf"
-        )
-        for entry in result["results"]:
-            if entry["status"] == "success":
-                self.assertIsNotNone(entry["mjcf_path"])
-
     def test_batch_usd_only(self):
-        """format='usd' のとき USD メタデータだけ出力されること"""
+        """USD メタデータが出力されること"""
         self._create_assets(1)
         result = self.exporter.export_batch(
-            str(self.assets_dir), str(self.output_dir), format="usd"
+            str(self.assets_dir), str(self.output_dir)
         )
         for entry in result["results"]:
             if entry["status"] == "success":
@@ -301,19 +277,6 @@ class TestHelpers(unittest.TestCase):
     def tearDown(self):
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_compute_inertia_returns_dict(self):
-        """_compute_inertia が ixx/iyy/izz を含む dict を返すこと"""
-        result = self.exporter._compute_inertia(0.5, [0.06, 0.04, 0.08])
-        for key in ("ixx", "iyy", "izz"):
-            self.assertIn(key, result)
-            self.assertGreater(result[key], 0.0)
-
-    def test_compute_inertia_symmetry(self):
-        """立方体の場合 ixx=iyy=izz であること"""
-        result = self.exporter._compute_inertia(1.0, [1.0, 1.0, 1.0])
-        self.assertAlmostEqual(result["ixx"], result["iyy"], places=10)
-        self.assertAlmostEqual(result["iyy"], result["izz"], places=10)
 
     def test_load_physics_defaults(self):
         """physics.json が存在しないとき デフォルト値が返ること"""

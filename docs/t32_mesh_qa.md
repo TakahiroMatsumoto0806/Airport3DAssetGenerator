@@ -9,6 +9,10 @@
 TRELLIS.2 で生成した GLB メッシュを Open3D + trimesh でルールベース品質チェックし、
 修復可能なものは自動修復して後段（T-3.3 VLM 検品 → T-4.1 物理付与）に流す。
 
+> **前提**: T-3.1 (TRELLIS.2-4B 3D生成) は x86_64 + RTX 5090 の別PCで実行される。
+> 生成した GLB は DGX Spark の `outputs/meshes_raw/` に配置済みであることを前提とする。
+> ファイルが揃っていれば T-3.2 はそのまま実行可能。
+
 | チェック項目 | 基準 |
 |-------------|------|
 | face count | 5,000 ≤ faces ≤ 100,000 |
@@ -149,36 +153,100 @@ print(s)
 
 `repair()` は以下の順序で修復を試みる:
 
-1. **degenerate faces 除去** — `mesh.nondegenerate_faces()` でマスク → `update_faces()`
+1. **degenerate faces 除去** — `mesh.update_faces(mesh.nondegenerate_faces())`
 2. **重複頂点・面の除去** — `merge_vertices()` + `unique_faces()` + `remove_unreferenced_vertices()`
-3. **穴埋め (hole filling)** — `trimesh.repair.fill_holes()`
-4. **法線修正** — `trimesh.repair.fix_winding()` + `fix_normals()`
+3. **法線修正** — `trimesh.repair.fix_normals()`
 
 修復後に再度 `check_single()` を実行し、`pass=True` になれば `repaired` とみなす。
 修復後も `pass=False` の場合は `failed` 扱いとなり、後段には進まない。
 
-> **制限**: `fill_holes()` は小さい穴（単純なポリゴンで閉じられる穴）のみ対応。
-> 大きく開いたメッシュや多数の穴があるメッシュは修復不能で `failed` となる。
+> **注意**: `fill_holes()` は TRELLIS メッシュでは逆効果（non-manifold エッジを生成）のため
+> repair フローに含めていない（2026-04-05 調査結果）。
 
 ---
 
 ## 5. トラブルシューティング
 
-### `ModuleNotFoundError: No module named 'networkx'`
+### [2026-04-05 調査] TRELLIS 出力は全件 "非 watertight" になる
 
-trimesh の穴埋め処理（`fill_holes`）に networkx が必要。
+**現象**: TRELLIS で生成した 161 件の GLB を `check_single()` にかけると、
+161/161 件が `is_watertight=False` となり、元の pass 条件では全件 `failed` になった。
 
-```bash
-source .venv/bin/activate
-uv pip install networkx
+**原因**: TRELLIS は Sparse SDF → マーチングキューブスでメッシュを生成するため、
+境界面（open boundary）が大量に残る。これは生成手法の構造的特性であり避けられない。
+
+**対処**: `pass` 判定条件から `is_watertight` を除外した（下記「pass 条件の変更」参照）。
+watertight はメトリクスとして記録し続けるが、合否には影響しない。
+コリジョンメッシュは T-4.1 CoACD で別途生成するため、視覚メッシュの閉性は不要。
+
+---
+
+### [2026-04-05 調査] Open3D の `is_edge_manifold()` が aarch64 で Segfault
+
+**現象**: `o3d_mesh.is_edge_manifold(allow_boundary_edges=False)` を呼ぶと
+Python インタプリタが Segfault (exit code 139) でクラッシュする。
+
+**環境**: Open3D 0.18.0 / aarch64 (DGX Spark GB10)
+
+**対処**: Open3D によるマニフォールド判定を廃止し、trimesh の `edges_sorted` を使った
+エッジカウントで代替した。
+
+```python
+from collections import Counter
+edge_face_counts = Counter(map(tuple, tm.edges_sorted))
+# edge_face_counts[e] > 2 → 非マニフォールドエッジ
+non_manifold_edges = sum(1 for v in edge_face_counts.values() if v > 2)
+boundary_edges     = sum(1 for v in edge_face_counts.values() if v == 1)
 ```
 
-### `Open3D: メッシュが空です`
+---
 
-GLB に複数マテリアルが含まれる場合、Open3D が読み込めないことがある。
-trimesh 側のチェック結果（watertight, degenerate 等）は依然として有効。
-`is_edge_manifold` / `is_vertex_manifold` のみ `False` として記録され、
-issues に `"Open3D マニフォールド判定失敗"` が追加される。
+### [2026-04-05 調査] `trimesh.repair.fill_holes()` がトポロジーを悪化させる
+
+**現象**: `repair()` 内で `fill_holes()` を呼ぶと、非マニフォールドエッジが
+0 → 591 件に急増し、修復前より pass 条件を悪化させた。
+
+**原因**: `fill_holes()` は単純なポリゴンでホールを埋めるが、TRELLIS メッシュのように
+オープンバウンダリが多い場合、内部でポリゴンが重なり non-manifold エッジを生成する。
+
+**対処**: `fill_holes()` を repair フローから完全に除外した。
+現在の repair 手順は以下のみ:
+1. `update_faces(nondegenerate_faces())` — 縮退面除去
+2. `merge_vertices()` + `unique_faces()` + `remove_unreferenced_vertices()` — 重複除去
+3. `fix_normals()` — 法線修正
+
+---
+
+### pass 条件の変更（2026-04-05 確定版）
+
+| 条件 | 変更前 | 変更後 | 理由 |
+|------|--------|--------|------|
+| is_watertight | **必須** | 参考値のみ | TRELLIS 全出力が非 watertight |
+| is_edge_manifold | 必須 | 必須 (trimesh で代替) | Open3D segfault 回避 |
+| is_vertex_manifold | **必須** | 参考値のみ | open boundary があれば常に False |
+| degenerate_count == 0 | 必須 | 必須 | 修復で対処可能 |
+| is_normal_consistent | 必須 | 必須 | 変更なし |
+| aspect_ratio_ok | 必須 | 必須 | 変更なし |
+| face_count_ok | 必須 | 必須 | 変更なし |
+
+---
+
+### [2026-04-05] 実測結果（161 メッシュ）
+
+| 状態 | 件数 | 割合 |
+|------|------|------|
+| pass（修復なし合格） | 45 | 28% |
+| repaired（修復後合格） | 100 | 62% |
+| failed（修復不能） | 16 | 10% |
+| **通過率合計** | **145** | **90.1%** |
+
+failed 16 件の主要原因: non-manifold エッジが修復後も残存（主に edge_manifold=False）
+
+---
+
+### `ModuleNotFoundError: No module named 'networkx'`
+
+`fill_holes()` を使っていた頃は networkx が必要だったが、現在は不要。
 
 ### face_count が 5K 未満 / 100K 超
 
@@ -227,5 +295,4 @@ QA-2b: VLM 3D 検品 (T-3.3)
 | ファイル | 役割 |
 |----------|------|
 | [src/mesh_qa.py](../src/mesh_qa.py) | MeshQA クラス本体 |
-| [src/utils/mesh_repair.py](../src/utils/mesh_repair.py) | 低レベル修復ユーティリティ |
 | [tests/test_mesh_qa.py](../tests/test_mesh_qa.py) | ユニットテスト（22 件） |

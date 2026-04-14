@@ -58,6 +58,9 @@ def _good_qa_json() -> str:
         "luggage_type": "hard_suitcase",
         "has_artifacts": False,
         "handle_retracted": True,
+        "is_bag_closed": True,
+        "is_checked_baggage_appropriate": True,
+        "checked_in_ready": True,
         "material_estimate": "polycarbonate",
         "pass": True,
         "verdict": "pass",
@@ -74,6 +77,9 @@ def _borderline_qa_json() -> str:
         "luggage_type": "backpack",
         "has_artifacts": False,
         "handle_retracted": None,
+        "is_bag_closed": True,
+        "is_checked_baggage_appropriate": True,
+        "checked_in_ready": True,
         "material_estimate": "nylon",
         "pass": False,
         "verdict": "review",
@@ -90,6 +96,9 @@ def _reject_qa_json() -> str:
         "luggage_type": "unknown",
         "has_artifacts": True,
         "handle_retracted": False,
+        "is_bag_closed": False,
+        "is_checked_baggage_appropriate": False,
+        "checked_in_ready": False,
         "material_estimate": "unknown",
         "pass": False,
         "verdict": "reject",
@@ -112,13 +121,31 @@ def _build_image_qa(mock_response_content: str = None) -> "ImageQA":
             mock_response_content
         )
 
-    with patch("src.image_qa.ImageQA.__init__", lambda self, **kwargs: None):
-        from src.image_qa import ImageQA
-        qa = ImageQA.__new__(ImageQA)
-        qa._client = mock_client
-        qa._model_name = "Qwen/Qwen3-VL-32B-Instruct"
-        qa._max_tokens = 512
-        qa._temperature = 0.0
+    from src.image_qa import (
+        ImageQA,
+        MIN_REALISM, MIN_INTEGRITY,
+        _SYSTEM_PROMPT, _USER_PROMPT_TEMPLATE,
+    )
+    qa = ImageQA.__new__(ImageQA)
+    qa._client = mock_client
+    qa._model_name = "Qwen/Qwen3-VL-32B-Instruct"
+    qa._max_tokens = 512
+    qa._temperature = 0.0
+    qa._system_prompt = _SYSTEM_PROMPT
+    qa._user_prompt_template = _USER_PROMPT_TEMPLATE
+    qa._min_realism = MIN_REALISM
+    qa._min_integrity = MIN_INTEGRITY
+    qa._min_coverage_pct = 50
+    qa._require_fully_visible = True
+    qa._require_contrast_sufficient = True
+    qa._require_no_background_shadow = True
+    qa._require_sharp_focus = True
+    qa._require_camera_angle_ok = True
+    qa._require_no_artifacts = True
+    qa._require_handle_retracted = True
+    qa._require_bag_closed = True
+    qa._require_checked_baggage_appropriate = True
+    qa._require_checked_in_ready = True
     return qa
 
 
@@ -174,11 +201,12 @@ class TestValidateAndNormalize(unittest.TestCase):
         self._validate = _validate_and_normalize
 
     def test_pass_when_all_criteria_met(self):
-        """realism>=7, integrity>=7, !artifacts → pass"""
+        """realism>=7, integrity>=7, !artifacts, handle_retracted, bag_closed, checked_baggage_ok → pass"""
         raw = {
             "realism_score": 8, "object_integrity": 8,
             "background_clean": True, "luggage_type": "hard_suitcase",
             "has_artifacts": False, "handle_retracted": True,
+            "is_bag_closed": True, "is_checked_baggage_appropriate": True,
             "material_estimate": "polycarbonate", "pass": True,
             "verdict": "pass", "reason": "",
         }
@@ -241,7 +269,7 @@ class TestValidateAndNormalize(unittest.TestCase):
         """スコアは 1–10 にクランプされること"""
         raw = {
             "realism_score": 15, "object_integrity": -3,
-            "background_clean": True, "luggage_type": "tote_bag",
+            "background_clean": True, "luggage_type": "hard_suitcase",
             "has_artifacts": False, "handle_retracted": None,
             "material_estimate": "canvas", "pass": False,
             "verdict": "reject", "reason": "",
@@ -250,17 +278,20 @@ class TestValidateAndNormalize(unittest.TestCase):
         self.assertEqual(result["realism_score"], 10)
         self.assertEqual(result["object_integrity"], 1)
 
-    def test_handle_retracted_none_becomes_false(self):
-        """handle_retracted が null → False に正規化"""
+    def test_handle_retracted_none_stays_none(self):
+        """handle_retracted が null → None のまま保持（ハンドルなしアイテムは合格扱い）"""
         raw = {
             "realism_score": 7, "object_integrity": 7,
             "background_clean": True, "luggage_type": "backpack",
             "has_artifacts": False, "handle_retracted": None,
+            "is_bag_closed": True, "is_checked_baggage_appropriate": True,
             "material_estimate": "nylon", "pass": True,
             "verdict": "pass", "reason": "",
         }
         result = self._validate(raw)
-        self.assertFalse(result["handle_retracted"])
+        self.assertIsNone(result["handle_retracted"])
+        # ハンドルなし（null）は合格条件を満たす
+        self.assertTrue(result["pass"])
 
 
 # ============================================================
@@ -380,8 +411,8 @@ class TestImageQAEvaluateSingle(unittest.TestCase):
             result = qa.evaluate_single(str(img_path))
         self.assertIn("pass", result)
 
-    def test_vllm_called_with_no_think(self):
-        """VLM へのリクエストに /no_think が含まれていること"""
+    def test_vllm_called_with_think(self):
+        """VLM へのリクエストに /think が含まれていること（B-2: thinking モード常時 ON）"""
         qa = self._get_qa(_good_qa_json())
         with tempfile.TemporaryDirectory() as tmpdir:
             img_path = Path(tmpdir) / "img.png"
@@ -390,12 +421,12 @@ class TestImageQAEvaluateSingle(unittest.TestCase):
 
         call_args = qa._client.chat.completions.create.call_args
         messages = call_args[1]["messages"]
-        # user メッセージのテキスト部分に /no_think が含まれること
+        # user メッセージのテキスト部分に /think が含まれること（B-2: thinking モード常時 ON）
         user_content = messages[-1]["content"]
         text_parts = [c["text"] for c in user_content if c.get("type") == "text"]
         self.assertTrue(
-            any("/no_think" in t for t in text_parts),
-            "/no_think が VLM リクエストに含まれていない",
+            any("/think" in t for t in text_parts),
+            "/think が VLM リクエストに含まれていない",
         )
 
 
@@ -663,6 +694,126 @@ class TestImageQAGetStatistics(unittest.TestCase):
         stats = self.qa.get_statistics([])
         self.assertEqual(stats["total"], 0)
         self.assertEqual(stats["pass_rate"], 0.0)
+
+
+# ============================================================
+# 受託手荷物条件（Checked Baggage）テスト
+# ============================================================
+
+class TestCheckedBaggageConditions(unittest.TestCase):
+    """受託手荷物状態チェックの新規QAフィールドのテスト"""
+
+    def setUp(self):
+        from src.image_qa import _validate_and_normalize
+        self._validate = _validate_and_normalize
+
+    def _good_raw(self, **overrides) -> dict:
+        """合格基準を満たす最小限の raw データ"""
+        base = {
+            "realism_score": 8, "object_integrity": 8,
+            "background_clean": True, "luggage_type": "hard_suitcase",
+            "has_artifacts": False, "handle_retracted": True,
+            "is_bag_closed": True, "is_checked_baggage_appropriate": True,
+            "checked_in_ready": True,
+            "material_estimate": "polycarbonate",
+            "is_fully_visible": True, "contrast_sufficient": True,
+            "object_coverage_pct": 65, "has_background_shadow": False,
+            "is_sharp_focus": True, "camera_angle_ok": True,
+            "pass": True, "verdict": "pass", "reason": "",
+        }
+        base.update(overrides)
+        return base
+
+    def test_handle_extended_causes_reject(self):
+        """キャリーハンドルが伸びた状態（False）→ 不合格"""
+        result = self._validate(self._good_raw(handle_retracted=False))
+        self.assertFalse(result["pass"])
+        self.assertEqual(result["verdict"], "reject")
+
+    def test_handle_retracted_passes(self):
+        """キャリーハンドルが収納（True）→ 合格"""
+        result = self._validate(self._good_raw(handle_retracted=True))
+        self.assertTrue(result["pass"])
+
+    def test_handle_none_passes(self):
+        """ハンドルなしアイテム（null）→ 合格（バックパック等）"""
+        result = self._validate(self._good_raw(handle_retracted=None))
+        self.assertIsNone(result["handle_retracted"])
+        self.assertTrue(result["pass"])
+
+    def test_bag_open_causes_reject(self):
+        """バッグが開いた状態（is_bag_closed=False）→ 不合格"""
+        result = self._validate(self._good_raw(is_bag_closed=False))
+        self.assertFalse(result["pass"])
+        self.assertEqual(result["verdict"], "reject")
+
+    def test_bag_closed_passes(self):
+        """バッグが閉じた状態（is_bag_closed=True）→ 合格条件を満たす"""
+        result = self._validate(self._good_raw(is_bag_closed=True))
+        self.assertTrue(result["pass"])
+
+    def test_small_handbag_causes_reject(self):
+        """受託手荷物不適切（小さなハンドバッグ等）→ 即 reject"""
+        result = self._validate(self._good_raw(is_checked_baggage_appropriate=False))
+        self.assertFalse(result["pass"])
+        self.assertEqual(result["verdict"], "reject")
+
+    def test_checked_baggage_appropriate_passes(self):
+        """受託手荷物として適切なサイズ・種別 → 合格条件を満たす"""
+        result = self._validate(self._good_raw(is_checked_baggage_appropriate=True))
+        self.assertTrue(result["pass"])
+
+    def test_new_fields_present_in_result(self):
+        """新規フィールドが結果 dict に含まれること（B-1: checked_in_ready を含む）"""
+        result = self._validate(self._good_raw())
+        self.assertIn("handle_retracted", result)
+        self.assertIn("is_bag_closed", result)
+        self.assertIn("is_checked_baggage_appropriate", result)
+        self.assertIn("checked_in_ready", result)
+
+    def test_missing_new_fields_default_to_safe(self):
+        """新規フィールドが VLM 応答に含まれない場合はデフォルト（合格扱い）"""
+        raw = {
+            "realism_score": 8, "object_integrity": 8,
+            "background_clean": True, "luggage_type": "hard_suitcase",
+            "has_artifacts": False,
+            # handle_retracted / is_bag_closed / is_checked_baggage_appropriate /
+            # checked_in_ready を省略
+            "material_estimate": "polycarbonate",
+        }
+        result = self._validate(raw)
+        # デフォルト値（安全側）で合格基準を満たすこと
+        self.assertTrue(result["is_bag_closed"])
+        self.assertTrue(result["is_checked_baggage_appropriate"])
+        self.assertTrue(result["checked_in_ready"])
+
+    def test_all_three_checked_baggage_failures_reject(self):
+        """3つの受託手荷物条件がすべて NG → reject"""
+        result = self._validate(self._good_raw(
+            handle_retracted=False,
+            is_bag_closed=False,
+            is_checked_baggage_appropriate=False,
+        ))
+        self.assertFalse(result["pass"])
+        self.assertEqual(result["verdict"], "reject")
+
+    def test_checked_in_ready_false_causes_reject(self):
+        """チェックイン不可状態（checked_in_ready=False）→ 即 reject"""
+        result = self._validate(self._good_raw(checked_in_ready=False))
+        self.assertFalse(result["pass"])
+        self.assertEqual(result["verdict"], "reject")
+
+    def test_checked_in_ready_true_passes(self):
+        """チェックイン可能状態（checked_in_ready=True）→ 合格条件を満たす"""
+        result = self._validate(self._good_raw(checked_in_ready=True))
+        self.assertTrue(result["pass"])
+        self.assertEqual(result["verdict"], "pass")
+
+    def test_checked_in_ready_in_result_dict(self):
+        """checked_in_ready フィールドが結果 dict に含まれること"""
+        result = self._validate(self._good_raw(checked_in_ready=False))
+        self.assertIn("checked_in_ready", result)
+        self.assertFalse(result["checked_in_ready"])
 
 
 if __name__ == "__main__":

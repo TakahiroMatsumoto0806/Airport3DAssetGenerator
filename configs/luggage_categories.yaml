@@ -10,6 +10,25 @@
 #   typical_materials: 代表的な材質
 #   typical_colors: 代表的な色
 #   weight_range_kg: [min, max]
+#
+# ---- このファイルの役割と使われ方 ----
+# 1. プロンプト生成（T-1.2）:
+#    - subcategories からプロンプトのバリエーション（機内持ち込み・中型・大型等）を決める
+#    - typical_materials / typical_colors はプロンプトの属性選択の参考になる
+#    - prompt_templates.yaml の sampling.category_weights と組み合わせて
+#      各カテゴリが何個の画像・3Dメッシュを生成するかの比率が決まる
+#
+# 2. ミニチュアスケール計算（T-4.1）:
+#    - size_range_cm を元に、実物サイズから miniature_scale の制約サイズへの
+#      スケール係数を計算する参考値として使用される
+#
+# ---- カスタマイズ時の注意点 ----
+# - 新しいカテゴリを追加する場合:
+#     1. このファイルにカテゴリを追記する
+#     2. prompt_templates.yaml の attributes.type にそのカテゴリと説明文を追記する
+#     3. prompt_templates.yaml の sampling.category_weights に重みを追加する
+#     4. material_properties.yaml の category_material_mapping にデフォルト材質を追加する
+# - カテゴリを削除する場合は上記 4 ファイルから対応エントリを削除すること
 # =============================================================================
 
 categories:
@@ -18,14 +37,18 @@ categories:
   hard_suitcase:
     name_ja: ハードスーツケース
     name_en: hard-shell suitcase
+    # サブカテゴリ: 中・大・特大の3サイズ。carry_on（機内持ち込み）は除外。
+    # サンプリング比率は prompt_templates.yaml の subcategory_size_weights で制御（1:4:5）。
     subcategories:
-      - carry_on          # 機内持ち込み (S)
       - medium_check_in   # 中型受託 (M)
       - large_check_in    # 大型受託 (L)
+      - extra_large       # 特大受託 (XL)
+    # 各サブカテゴリの実寸サイズ範囲 [W_min, W_max, D_min, D_max, H_min, H_max]（cm）。
+    # ミニチュアスケール（physics.miniature=true）適用時のスケール係数の計算基準になる。
     size_range_cm:
-      carry_on:         [35, 40, 20, 25, 50, 56]
       medium_check_in:  [42, 48, 25, 30, 62, 70]
       large_check_in:   [50, 58, 28, 35, 72, 82]
+      extra_large:      [60, 70, 30, 38, 85, 100]
     typical_materials:
       - polycarbonate
       - abs_plastic
@@ -39,21 +62,22 @@ categories:
       - white
       - champagne_gold
     weight_range_kg:
-      carry_on:         [2.0, 4.0]
       medium_check_in:  [3.0, 5.5]
       large_check_in:   [4.0, 7.0]
+      extra_large:      [5.0, 9.0]
 
   soft_suitcase:
     name_ja: ソフトスーツケース
     name_en: soft-shell suitcase
+    # carry_on（機内持ち込み）は除外。中・大・特大の3サイズ（比率1:4:5）。
     subcategories:
-      - carry_on
       - medium_check_in
       - large_check_in
+      - extra_large
     size_range_cm:
-      carry_on:         [33, 40, 18, 24, 48, 56]
       medium_check_in:  [40, 48, 22, 28, 60, 70]
       large_check_in:   [48, 56, 26, 34, 70, 80]
+      extra_large:      [58, 68, 30, 38, 82, 95]
     typical_materials:
       - nylon
       - polyester
@@ -67,22 +91,25 @@ categories:
       - burgundy
       - olive
     weight_range_kg:
-      carry_on:         [1.5, 3.5]
       medium_check_in:  [2.5, 4.5]
       large_check_in:   [3.0, 6.0]
+      extra_large:      [4.0, 8.0]
 
   # ---------- バッグ類 ----------
   backpack:
     name_ja: バックパック
     name_en: backpack
+    # daypack（20L以下）は機内持ち込みサイズのため除外。中・大・特大の3サイズ（比率1:4:5）。
     subcategories:
-      - daypack           # 小型 (~20L)
-      - travel_pack       # 旅行用 (30–50L)
-      - hiking_pack       # 登山用 (50–80L)
+      - medium_travel     # 旅行用中型 (30–50L)
+      - large_travel      # 旅行・登山用大型 (50–70L)
+      - extra_large       # 登山・遠征用特大 (70–100L)
+    # バックパックはサブカテゴリごとにサイズが大きく異なるため、
+    # これがスケール計算に与える影響も大きい。
     size_range_cm:
-      daypack:      [25, 35, 12, 20, 35, 48]
-      travel_pack:  [28, 38, 18, 28, 50, 65]
-      hiking_pack:  [30, 40, 22, 32, 65, 80]
+      medium_travel:  [28, 38, 18, 28, 50, 65]
+      large_travel:   [30, 42, 22, 32, 65, 80]
+      extra_large:    [32, 45, 25, 35, 75, 90]
     typical_materials:
       - nylon
       - polyester
@@ -97,21 +124,21 @@ categories:
       - red
       - khaki
     weight_range_kg:
-      daypack:      [0.4, 1.2]
-      travel_pack:  [0.8, 2.0]
-      hiking_pack:  [1.2, 3.0]
+      medium_travel:  [0.8, 2.0]
+      large_travel:   [1.2, 2.5]
+      extra_large:    [1.5, 3.5]
 
   duffel_bag:
     name_ja: ダッフルバッグ
     name_en: duffel bag
     subcategories:
-      - small   # ~30L
-      - medium  # 30–60L
-      - large   # 60–100L
+      - medium      # 30–60L
+      - large       # 60–100L
+      - extra_large # 100L以上
     size_range_cm:
-      small:   [40, 50, 20, 28, 22, 30]
-      medium:  [50, 65, 25, 35, 28, 38]
-      large:   [65, 85, 32, 42, 35, 48]
+      medium:      [50, 65, 25, 35, 28, 38]
+      large:       [65, 85, 32, 42, 35, 48]
+      extra_large: [80, 100, 38, 50, 42, 58]
     typical_materials:
       - nylon
       - polyester
@@ -125,93 +152,39 @@ categories:
       - brown
       - red
     weight_range_kg:
-      small:   [0.4, 1.0]
-      medium:  [0.7, 1.8]
-      large:   [1.0, 2.5]
-
-  tote_bag:
-    name_ja: トートバッグ
-    name_en: tote bag
-    subcategories:
-      - canvas_tote
-      - leather_tote
-      - shopping_bag
-    size_range_cm:
-      canvas_tote:   [32, 45, 12, 18, 28, 40]
-      leather_tote:  [30, 42, 12, 18, 26, 38]
-      shopping_bag:  [28, 40, 10, 16, 30, 45]
-    typical_materials:
-      - canvas
-      - leather
-      - synthetic_leather
-      - nonwoven_fabric
-    typical_colors:
-      - natural_beige
-      - black
-      - navy
-      - white
-      - brown
-      - red
-    weight_range_kg:
-      canvas_tote:   [0.2, 0.6]
-      leather_tote:  [0.5, 1.5]
-      shopping_bag:  [0.1, 0.4]
-
-  briefcase:
-    name_ja: ブリーフケース
-    name_en: briefcase
-    subcategories:
-      - hard_briefcase
-      - soft_briefcase
-      - laptop_bag
-    size_range_cm:
-      hard_briefcase: [38, 46, 10, 16, 28, 36]
-      soft_briefcase: [36, 44, 8,  14, 26, 34]
-      laptop_bag:     [35, 42, 5,  10, 26, 32]
-    typical_materials:
-      - leather
-      - synthetic_leather
-      - nylon
-      - aluminum
-    typical_colors:
-      - black
-      - dark_brown
-      - tan
-      - gray
-      - navy
-    weight_range_kg:
-      hard_briefcase: [1.0, 3.0]
-      soft_briefcase: [0.5, 1.5]
-      laptop_bag:     [0.3, 1.0]
+      medium:      [0.7, 1.8]
+      large:       [1.0, 2.5]
+      extra_large: [1.5, 3.5]
 
   # ---------- 箱・ケース ----------
   cardboard_box:
     name_ja: 段ボール箱
     name_en: cardboard box
     subcategories:
-      - small_box   # ~30×30×30cm
-      - medium_box  # ~50×40×40cm
-      - large_box   # ~80×60×60cm
+      - medium_box      # ~50×40×40cm
+      - large_box       # ~80×60×60cm
+      - extra_large_box # ~100×80×80cm以上
     size_range_cm:
-      small_box:   [15, 35, 15, 35, 15, 35]
-      medium_box:  [35, 55, 30, 50, 30, 50]
-      large_box:   [55, 85, 45, 65, 45, 65]
+      medium_box:      [35, 55, 30, 50, 30, 50]
+      large_box:       [55, 85, 45, 65, 45, 65]
+      extra_large_box: [80, 110, 60, 85, 60, 85]
     typical_materials:
       - cardboard
     typical_colors:
       - brown
       - white
+    # 段ボール箱は中身次第で重量が大きく変わるため、範囲が広い（空箱～積載時）。
     weight_range_kg:
-      small_box:   [0.1, 5.0]
-      medium_box:  [0.2, 15.0]
-      large_box:   [0.3, 30.0]
+      medium_box:      [0.2, 15.0]
+      large_box:       [0.3, 30.0]
+      extra_large_box: [0.5, 50.0]
 
   hard_case:
     name_ja: ハードケース
     name_en: hard case / equipment case
     subcategories:
-      - pelican_style   # ラッチ付き防水ケース
-      - equipment_case  # 機材ケース
+      - pelican_style   # ラッチ付き防水ケース（Pelican 社製品に代表される）
+      - equipment_case  # 機材ケース（音響・映像機材等）
     size_range_cm:
       pelican_style:   [25, 60, 18, 45, 12, 30]
       equipment_case:  [40, 80, 30, 60, 20, 50]
@@ -234,9 +207,12 @@ categories:
     name_ja: ゴルフバッグ
     name_en: golf bag
     subcategories:
-      - stand_bag
-      - cart_bag
-      - travel_cover
+      - stand_bag     # スタンドバッグ（コース持ち歩き用）
+      - cart_bag      # カートバッグ（乗り物積載用）
+      - travel_cover  # トラベルカバー（空港輸送用）
+    # ゴルフバッグは縦長のアスペクト比が特徴。
+    # この size_range_cm を元に miniature スケール時の縮尺が決まるため、
+    # 他カテゴリより高さ（H）が大きい値になっている。
     size_range_cm:
       stand_bag:    [20, 28, 20, 28, 85, 100]
       cart_bag:     [22, 30, 22, 30, 90, 105]
@@ -262,6 +238,9 @@ categories:
     subcategories:
       - ski_bag
       - snowboard_bag
+    # スキーバッグは極端に縦長（H: 150〜200cm）。
+    # ミニチュアスケール時に max_long_side_mm 制約で圧縮され、
+    # 細長い形状はアスペクト比が変わる可能性がある点に注意。
     size_range_cm:
       ski_bag:       [15, 22, 12, 18, 150, 200]
       snowboard_bag: [20, 28, 12, 18, 150, 180]
@@ -277,37 +256,13 @@ categories:
       ski_bag:       [1.0, 3.0]
       snowboard_bag: [1.0, 3.0]
 
-  stroller:
-    name_ja: ベビーカー
-    name_en: stroller / baby buggy
-    subcategories:
-      - compact_stroller
-      - full_size_stroller
-    size_range_cm:
-      compact_stroller:   [45, 55, 30, 40, 80, 100]
-      full_size_stroller: [55, 65, 40, 55, 90, 110]
-    typical_materials:
-      - aluminum
-      - steel
-      - plastic
-      - fabric
-    typical_colors:
-      - black
-      - gray
-      - navy
-      - red
-      - beige
-    weight_range_kg:
-      compact_stroller:   [4.0, 8.0]
-      full_size_stroller: [8.0, 15.0]
-
   instrument_case:
     name_ja: 楽器ケース
     name_en: instrument case
     subcategories:
-      - guitar_case
-      - violin_case
-      - keyboard_bag
+      - guitar_case    # ギターケース（横長の大型楽器）
+      - violin_case    # バイオリンケース（小型・高さのある楽器）
+      - keyboard_bag   # キーボードバッグ（横長・薄型）
     size_range_cm:
       guitar_case:   [40, 48, 14, 20, 100, 115]
       violin_case:   [24, 30, 8,  14, 68,  78]

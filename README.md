@@ -2,7 +2,65 @@
 
 空港荷物コンテナ詰込ロボット向け Physical AI 学習データ用の 3D アセットを大量自動生成するパイプライン。
 
-**目標**: 1,000 個以上の PBR テクスチャ付き 3D アセット（USD / MJCF 形式、コリジョン・物理プロパティ付き）
+**目標**: 任意の数の PBR テクスチャ付き 3D アセット（Isaac Sim USD 形式、コリジョン・物理プロパティ付き）
+
+---
+
+## インストール
+
+### Method A: GitHub + Hugging Face（オンライン）
+
+```bash
+git clone https://github.com/TakahiroMatsumoto0806/Airport3DAssetGenerator.git
+cd Airport3DAssetGenerator/al3dg
+
+# 依存パッケージ・環境のセットアップ
+bash scripts/setup_environment.sh
+
+# モデルダウンロード（~117GB、HF アカウント必要）
+huggingface-cli login
+python scripts/download_models.py
+
+# 実行
+source .venv/bin/activate
+python scripts/run_pipeline.py
+```
+
+### Method B: 共有ドライブから（オフライン・推奨）
+
+別の DGX Spark からモデルを受け取る場合はこちら。Hugging Face 不要。
+
+```bash
+# 送り側 DGX Spark で share/ ディレクトリを転送
+rsync -avz --progress \
+  /path/to/Airport3DAssetGenerator/share/ \
+  user@target-dgx:/data/al3dg_share/
+
+# 受け取り側 DGX Spark で実行
+git clone https://github.com/TakahiroMatsumoto0806/Airport3DAssetGenerator.git
+cd Airport3DAssetGenerator/al3dg
+bash scripts/setup_from_share.sh /data/al3dg_share
+
+source .venv/bin/activate
+python scripts/run_pipeline.py
+```
+
+詳細は `share/README.md` を参照。
+
+### Method C: Docker（コンテナ実行）
+
+```bash
+git clone https://github.com/TakahiroMatsumoto0806/Airport3DAssetGenerator.git
+cd Airport3DAssetGenerator/al3dg
+
+# ~/models/ にモデルを用意（Method A or B で取得）
+# イメージをビルドしてパイプライン実行
+docker compose build
+docker compose run --rm al3dg python scripts/run_pipeline.py
+```
+
+> **前提**: NVIDIA Container Toolkit インストール済み
+> (`sudo apt install nvidia-container-toolkit`)
 
 ---
 
@@ -14,7 +72,6 @@
 | メモリ | 128GB 統合メモリ |
 | OS | Ubuntu Linux |
 | Python | 3.11 |
-| パッケージ管理 | uv |
 
 ---
 
@@ -23,51 +80,10 @@
 | モデル | 用途 | サイズ |
 |--------|------|--------|
 | FLUX.1-schnell | Text-to-Image 生成 | ~12GB |
-| TRELLIS.2-4B (Microsoft) | Image-to-3D 生成 | ~24GB |
-| Qwen3-VL-32B (vLLM) | プロンプト生成・画像検品・3D検品（全タスク統一） | ~65GB |
-| CLIP ViT-L/14 (OpenCLIP) | 多様性評価 | ~2GB |
+| TRELLIS.2-4B (Microsoft) | Image-to-3D 生成（別 PC で実行） | ~24GB |
+| Qwen3-VL-32B (vLLM) | プロンプト生成・画像検品・3D 検品（全タスク統一） | ~65GB |
 
 モデルは逐次ロード（同時ロード禁止）。ピーク使用量は常に 128GB 以下に保つ。
-
----
-
-## セットアップ
-
-```bash
-# 1. 環境構築（初回のみ）
-bash scripts/setup_environment.sh
-
-# 2. 仮想環境を有効化
-source .venv/bin/activate
-
-# 3. モデルダウンロード
-python scripts/download_models.py
-
-# 4. GPU 動作確認
-python tests/test_gpu_models.py
-```
-
----
-
-## パイプライン実行
-
-```bash
-# フルパイプライン（全ステップ順次実行）
-python scripts/run_pipeline.py
-
-# 特定ステップのみ実行
-python scripts/run_pipeline.py --steps prompt image image_qa
-
-# 中断再開なし（全件再実行）
-python scripts/run_pipeline.py --no-resume
-
-# 個別ステップ実行
-python scripts/run_step.py --step physics
-
-# 多様性レポートのみ生成
-python scripts/generate_report.py --no-clip
-python scripts/generate_report.py --assets-dir outputs/assets_final/
-```
 
 ---
 
@@ -80,51 +96,260 @@ Step 2: 画像生成        (FLUX.1-schnell, 1024×1024, steps=4)
     ↓
 QA-1:  画像検品         (Qwen3-VL-32B, /no_think, realism≥7, integrity≥7)
     ↓
-Step 3: 3D生成          (TRELLIS.2-4B, simplify=0.95, texture=1024)
+Step 3: 3D 生成         (TRELLIS.2-4B, 別 PC で実行 → GLB を転送)
     ↓
-QA-2a: メッシュQA       (Open3D + trimesh, ルールベース主判定)
-QA-2b: VLM 3D検品       (Qwen3-VL-32B, /think, geometry≥7, texture≥6)
+QA-2a: メッシュ QA      (Open3D + trimesh, ルールベース)
+QA-2b: VLM 3D 検品      (Qwen3-VL-32B, /think, geometry≥5, texture≥4)
     ↓
-Step 4: 物理プロパティ  (CoACD凸分解 + material_properties.yaml)
+Step 4: 物理プロパティ  (CoACD 凸分解 + material_properties.yaml)
     ↓
-Step 5: エクスポート    (MJCF + Isaac Sim USD メタデータ)
-    ↓
-Step 6: 多様性評価      (OpenCLIP + Vendi Score)
+Step 5: エクスポート    (Isaac Sim USD メタデータ)
 ```
 
 ---
 
-## 実装フェーズ
+## vLLM サーバー管理
 
-| Phase | タスクID | 状態 | ドキュメント |
-|-------|---------|------|------------|
-| 0 | T-0.1 基盤環境セットアップ | ✅ | — |
-| 0 | T-0.2 モデルダウンロード | ✅ | — |
-| 0 | T-0.3 GPU 動作確認 | ✅ | — |
-| 1 | T-1.1 設定ファイル | ✅ | — |
-| 1 | T-1.2 プロンプト生成エンジン | ✅ | — |
-| 2 | T-2.1 画像生成エンジン | ✅ | — |
-| 2 | T-2.2 画像検品 VLM | ✅ | — |
-| 3 | T-3.1 3D 生成エンジン | ✅ | — |
-| 3 | T-3.2 メッシュ品質チェック | ✅ | [docs/t32_mesh_qa.md](docs/t32_mesh_qa.md) |
-| 3 | T-3.3 VLM マルチビュー検品 | ✅ | [docs/t33_mesh_vlm_qa.md](docs/t33_mesh_vlm_qa.md) |
-| 4 | T-4.1 物理プロパティ付与 | ✅ | — |
-| 4 | T-4.2 シミュレータエクスポート | ✅ | — |
-| 5 | T-5.1 多様性評価 | ✅ | — |
-| 6 | T-6.1 パイプライン統合 | ✅ | — |
-| 6 | T-6.2 CLI スクリプト | ✅ | — |
+Qwen3-VL-32B はプロセス間で共用される。**フルパイプライン（`run_pipeline.py`）は vLLM の起動・停止を自動で管理するため、手動操作は不要。**
+
+個別ステップを手動実行する場合は、以下で別ターミナルから起動しておく:
+
+```bash
+# 起動（バックグラウンド）
+bash scripts/start_vllm_server.sh &
+
+# ヘルスチェック
+curl http://localhost:8001/health
+```
+
+| 注意点 | 内容 |
+|--------|------|
+| ポート | 8001（8000 は Docker proxy が使用中のため） |
+| 起動時間 | 初回は約 15 分（14 シャード × 約 20 秒 + CUDA グラフ生成） |
+| メモリ | 約 65GB。FLUX.1 / TRELLIS.2 ロード中は必ず停止すること |
 
 ---
 
-## 各コンポーネントのセットアップ手順
+## パイプライン実行
 
-各フェーズで必要なインストール・設定・実行手順を個別ドキュメントにまとめている。
-DGX Spark 固有の注意点（OSMesa, vLLM, TRELLIS.2 conda 環境 等）を詳述。
+### 通常の運用フロー
 
-| ドキュメント | 内容 |
-|------------|------|
-| [docs/t32_mesh_qa.md](docs/t32_mesh_qa.md) | T-3.2 メッシュ品質チェック（Open3D + trimesh） |
-| [docs/t33_mesh_vlm_qa.md](docs/t33_mesh_vlm_qa.md) | T-3.3 VLM マルチビュー検品（pyrender + OSMesa + vLLM） |
+```bash
+# 1. フルパイプライン実行（プロンプト生成〜エクスポートまで一括）
+python scripts/run_pipeline.py
+
+# 2. 完了後、レポートをブラウザで確認
+open outputs/reports/prompt_review.html
+open outputs/reports/image_qa_review.html
+open outputs/reports/mesh_vlm_qa_review.html
+```
+
+### Step 3（3D 生成）は別 PC で実行
+
+TRELLIS.2-4B は x86_64 + RTX 5090 の別 PC で実行する。DGX Spark では mesh ステップをスキップし、生成済み GLB を転送してから続行する。
+
+```bash
+# DGX Spark での実行（mesh ステップを除く）
+python scripts/run_pipeline.py --steps prompt image image_qa
+
+# 別 PC で TRELLIS.2 を実行後、GLB を転送
+rsync -avz user@trellis-pc:~/outputs/meshes_raw/ outputs/meshes_raw/
+
+# 転送後、後続ステップを実行
+python scripts/run_pipeline.py --steps mesh_qa mesh_vlm_qa physics sim_export
+```
+
+### よく使うオプション
+
+```bash
+# 特定ステップのみ実行
+python scripts/run_pipeline.py --steps prompt image image_qa
+
+# 全件再実行（中断再開をリセット）
+python scripts/run_pipeline.py --no-resume
+
+# 設定ファイルを指定
+python scripts/run_pipeline.py --config configs/pipeline_config.yaml
+
+# vLLM を手動管理する場合（自動起動・停止を無効化）
+python scripts/run_pipeline.py --no-vllm-auto-start
+```
+
+### 個別ステップ実行
+
+```bash
+# 任意のステップを単体で実行
+python scripts/run_step.py --step <ステップ名>
+
+# 例: 物理プロパティ付与のみ
+python scripts/run_step.py --step physics
+
+```
+
+利用可能なステップ一覧:
+
+| ステップ名 | 処理内容 |
+|-----------|---------|
+| `prompt` | プロンプト生成（Qwen3-VL-32B リファイン） |
+| `image` | 画像生成（FLUX.1-schnell） |
+| `image_qa` | 画像検品（Qwen3-VL-32B） |
+| `mesh` | 3D メッシュ生成（TRELLIS.2、別 PC 推奨） |
+| `mesh_qa` | メッシュ品質チェック（trimesh + Open3D） |
+| `mesh_vlm_qa` | VLM マルチビュー 3D 検品（Qwen3-VL-32B） |
+| `physics` | 物理プロパティ付与（CoACD 凸分解） |
+| `sim_export` | Isaac Sim USD エクスポートメタデータ生成 |
+
+---
+
+## 出力ディレクトリ構成
+
+```
+outputs/
+├── prompts/
+│   └── prompts.json                      # 生成済みプロンプト一覧
+├── images/                               # FLUX.1 生成画像（PNG）
+├── images_approved/
+│   ├── *.png                             # 画像 QA 合格画像
+│   └── image_qa_results.json            # QA スコア・合否記録
+├── meshes_raw/                           # TRELLIS.2 生成 GLB（別 PC から転送）
+├── meshes_approved/
+│   ├── *.glb                             # メッシュ QA + VLM QA 合格メッシュ
+│   └── mesh_vlm_qa_results.json         # VLM QA スコア記録
+├── assets_final/
+│   ├── *.glb                             # 物理プロパティ付き最終メッシュ
+│   ├── metadata/
+│   │   └── *.json                        # Isaac Sim USD エクスポートメタデータ
+│   └── collisions/
+│       └── *.obj                         # CoACD 凸分解コリジョンメッシュ
+├── renders/                              # VLM 3D 検品用マルチビューレンダリング画像
+├── reports/
+│   ├── prompt_review.html                # プロンプト一覧・VLM リファイン入出力（HTML）
+│   ├── image_qa_review.html              # 画像 QA 検品レポート（HTML）
+│   ├── mesh_vlm_qa_review.html           # 3D 検品レポート（HTML）
+│   ├── pass_rate_report.html             # カテゴリ別合格率レポート（HTML）
+│   └── pass_rate_report.json            # カテゴリ別合格率サマリー（JSON）
+└── logs/                                 # 実行ログ
+```
+
+各アセットには provenance（pass / review / reject）が JSON で記録される。
+
+---
+
+## 設定ファイル
+
+### `configs/pipeline_config.yaml` — メイン設定
+
+主要な調整項目:
+
+```yaml
+generation:
+  target_count: 1000          # 目標生成数（最終的に assets_final に残るアセット数）
+  prompt_count_per_category: 10  # カテゴリあたりのプロンプト生成数
+
+models:
+  vlm:
+    base_url: "http://localhost:8001/v1"  # vLLM サーバーの URL
+    model_name: "/home/ntt/models/Qwen3-VL-32B-Instruct"
+
+image_qa:
+  thresholds:
+    realism: 7      # 画像リアリティ閾値（1-10、高いほど厳しい）
+    integrity: 7    # 形状整合性閾値（1-10）
+
+mesh_vlm_qa:
+  thresholds:
+    geometry: 5     # 3D 形状品質閾値（1-10）
+    texture: 4      # テクスチャ品質閾値（1-10）
+```
+
+### `configs/prompt_templates.yaml` — プロンプト・カテゴリ重み
+
+カテゴリごとの生成比率（`sampling.category_weights`）を調整することで、特定カテゴリの生成数を増減できる（合計が 1.0 になるよう設定）:
+
+```yaml
+sampling:
+  category_weights:
+    hard_suitcase: 0.27   # 最終合格の約 27% を hard_suitcase にする場合
+    soft_suitcase: 0.16
+    backpack: 0.16
+    # ...（11 カテゴリ、合計 1.00）
+```
+
+### `configs/luggage_categories.yaml` — カテゴリ定義
+
+各カテゴリのサイズ・材質・色などを定義する。カテゴリを追加・削除する際は以下 4 ファイルを同時に更新すること:
+
+1. `configs/luggage_categories.yaml` — カテゴリ本体
+2. `configs/prompt_templates.yaml` — `attributes.type` にテンプレート追加 + `category_weights` に重み追加
+3. `configs/material_properties.yaml` — `category_material_mapping` にデフォルト材質追加
+
+---
+
+## カテゴリ別合格率の測定
+
+本番生成前にカテゴリごとの画像検品合格率を測定し、`category_weights` を最適化するために使用する。
+
+```bash
+# 20 枚/カテゴリで測定（精度 ±22%、推奨スケール）
+python scripts/measure_pass_rates.py --samples 20
+
+# 5 枚/カテゴリで簡易テスト
+python scripts/measure_pass_rates.py --samples 5 --no-llm-refine
+
+# 既存 QA 結果からレポートのみ再生成
+python scripts/measure_pass_rates.py --skip-pipeline
+```
+
+> **注意**: 既存の `outputs/` が上書きされる。事前に `backup_outputs.py` でバックアップを取ること。
+
+実行完了後、`outputs/reports/pass_rate_report.html` にカテゴリ別合格率と推奨 `category_weights` が表示される。
+
+---
+
+## レポートの確認
+
+```bash
+# プロンプト確認・VLM リファイン入出力
+open outputs/reports/prompt_review.html
+
+# 画像 QA 検品結果（スコア・合否・画像サムネイル）
+open outputs/reports/image_qa_review.html
+
+# 3D 検品結果（マルチビュー画像・スコア・問題点）
+open outputs/reports/mesh_vlm_qa_review.html
+
+# カテゴリ別合格率レポート
+open outputs/reports/pass_rate_report.html
+```
+
+| レポート | 内容 |
+|---------|------|
+| `outputs/reports/prompt_review.html` | プロンプト一覧・VLM リファイン入出力・生成画像サムネイル |
+| `outputs/reports/image_qa_review.html` | 画像 QA 検品スコア・合否・サムネイル |
+| `outputs/reports/mesh_vlm_qa_review.html` | 3D 検品マルチビュー画像・スコア・問題点 |
+| `outputs/reports/pass_rate_report.html` | カテゴリ別合格率・推奨 `category_weights` |
+
+### レポートのみ再生成（パイプライン再実行なし）
+
+```bash
+# 画像 QA リジェクト分析
+python scripts/generate_report.py --step image_qa
+
+# カテゴリ別合格率レポート
+python scripts/generate_report.py --step pass_rate
+```
+
+---
+
+## バックアップ
+
+`measure_pass_rates.py` や `--no-resume` 実行は既存の `outputs/` を上書きするため、重要な出力は事前にバックアップする。
+
+```bash
+python scripts/backup_outputs.py
+```
+
+バックアップ先: `outputs_backup/YYYYMMDD_HHMMSS/`
 
 ---
 
@@ -135,47 +360,14 @@ DGX Spark 固有の注意点（OSMesa, vLLM, TRELLIS.2 conda 環境 等）を詳
 同時に複数の大規模モデルをロードしないこと。ピークメモリは常に 128GB 以下に保つ。
 
 ```
-VLM（~65GB）使用中 → FLUX.1 / TRELLIS.2 は必ずアンロード済みであること
-TRELLIS.2（~24GB）使用中 → VLM は必ずアンロード（vLLM サーバーは停止 or 別プロセス）
+Qwen3-VL-32B（~65GB）起動中 → FLUX.1 / TRELLIS.2 は必ずアンロード済みであること
+FLUX.1-schnell（~12GB）ロード中 → vLLM サーバーは必ず停止すること
+TRELLIS.2-4B（~24GB）ロード中 → vLLM サーバーは必ず停止すること
 ```
 
-各クラスの `unload()` メソッドを明示的に呼び出してから次のモデルをロードすること。
+`run_pipeline.py` はこの順序を自動的に管理する。手動で個別ステップを実行する場合は上記の制約を必ず守ること。
 
-### vLLM サーバー
+### TRELLIS.2 は別 PC で実行
 
-Qwen3-VL-32B は全タスク（T-1.2 プロンプト生成 / T-2.2 画像検品 / T-3.3 3D 検品）で共用する。
-
-```bash
-# バックグラウンドで起動
-bash scripts/start_vllm_server.sh &
-
-# ヘルスチェック
-curl http://localhost:8000/health
-```
-
-### TRELLIS.2 専用 conda 環境
-
-TRELLIS.2 は pip 配布なし。専用の conda 環境 `trellis2` が必要。
-
-```bash
-cd ~/trellis2
-. ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel
-conda activate trellis2
-# TRELLIS.2 の推論はこの環境で実行する
-```
-
-### pyrender / OSMesa（T-3.3 で必要）
-
-```bash
-# OSMesa ライブラリ（初回のみ）
-sudo apt-get install -y libosmesa6-dev
-
-# 環境変数（必ず Python 起動前に設定）
-export PYOPENGL_PLATFORM=osmesa
-```
-
----
-
-## 正本仕様
-
-`plan/dgx_spark_construction_plan.html` を唯一の正本仕様とする。
+TRELLIS.2-4B は x86_64 アーキテクチャ + RTX 5090 環境で実行する。DGX Spark（aarch64）では実行不可。
+GLB ファイルを生成後、`outputs/meshes_raw/` へ転送してから後続ステップを実行する。

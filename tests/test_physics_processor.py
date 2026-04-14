@@ -371,9 +371,7 @@ class TestProcessBatch(unittest.TestCase):
         """metadata_json があれば detected_type を material 解決に使用すること"""
         mock_collision.return_value = []
         self._create_glbs(1)
-        # VLM QA 結果 JSON を作成
         meta_path = Path(self.tmpdir) / "vlm.json"
-        mesh_key = "mesh_000"
         with open(meta_path, "w") as f:
             json.dump({"results": [
                 {"mesh_path": str(self.mesh_dir / "mesh_000.glb"),
@@ -386,13 +384,74 @@ class TestProcessBatch(unittest.TestCase):
             str(self.mesh_dir), str(self.output_dir),
             metadata_json=str(meta_path),
         )
-        # physics.json の中身を確認
         physics_path = self.output_dir / "mesh_000" / "physics.json"
         if physics_path.exists():
             with open(physics_path) as f:
                 data = json.load(f)
-            # nylon か composite_backpack にマッピングされること
             self.assertIn(data.get("material"), ("nylon", "composite_backpack"))
+
+    @patch.object(PhysicsProcessor, "generate_collision")
+    def test_batch_vlm_pass_false_excluded(self, mock_collision):
+        """VLM QA pass=False のメッシュは処理されないこと（回帰テスト）"""
+        mock_collision.return_value = ["col_0.stl"]
+        # pass_a: pass=True, fail_b: pass=False
+        for name in ("pass_a", "fail_b"):
+            box = trimesh.creation.box(extents=[1.0, 0.6, 1.4])
+            box.export(str(self.mesh_dir / f"{name}.glb"), file_type="glb")
+
+        meta_path = Path(self.tmpdir) / "vlm.json"
+        with open(meta_path, "w") as f:
+            json.dump({"results": [
+                {"mesh_path": str(self.mesh_dir / "pass_a.glb"),
+                 "detected_type": "hard_suitcase", "pass": True},
+                {"mesh_path": str(self.mesh_dir / "fail_b.glb"),
+                 "detected_type": "hard_suitcase", "pass": False},
+            ]}, f)
+
+        result = self.processor.process_batch(
+            str(self.mesh_dir), str(self.output_dir),
+            metadata_json=str(meta_path),
+        )
+        self.assertEqual(result["total"], 1, "pass=True のメッシュ 1 件だけ処理されるべき")
+        self.assertTrue((self.output_dir / "pass_a" / "physics.json").exists(),
+                        "pass_a は処理されているべき")
+        self.assertFalse((self.output_dir / "fail_b" / "physics.json").exists(),
+                         "fail_b は処理されないべき")
+
+    @patch.object(PhysicsProcessor, "generate_collision")
+    def test_batch_vlm_uneval_excluded(self, mock_collision):
+        """VLM QA 未評価メッシュ（metadata に存在しない）も除外されること（回帰テスト）"""
+        mock_collision.return_value = ["col_0.stl"]
+        for name in ("pass_a", "uneval_c"):
+            box = trimesh.creation.box(extents=[1.0, 0.6, 1.4])
+            box.export(str(self.mesh_dir / f"{name}.glb"), file_type="glb")
+
+        meta_path = Path(self.tmpdir) / "vlm.json"
+        with open(meta_path, "w") as f:
+            json.dump({"results": [
+                {"mesh_path": str(self.mesh_dir / "pass_a.glb"),
+                 "detected_type": "hard_suitcase", "pass": True},
+                # uneval_c は metadata に存在しない
+            ]}, f)
+
+        result = self.processor.process_batch(
+            str(self.mesh_dir), str(self.output_dir),
+            metadata_json=str(meta_path),
+        )
+        self.assertEqual(result["total"], 1, "pass=True の 1 件だけ処理されるべき")
+        self.assertFalse((self.output_dir / "uneval_c" / "physics.json").exists(),
+                         "未評価メッシュは処理されないべき")
+
+    @patch.object(PhysicsProcessor, "generate_collision")
+    def test_batch_no_metadata_processes_all(self, mock_collision):
+        """metadata_json が None の場合は全メッシュを処理すること"""
+        mock_collision.return_value = ["col_0.stl"]
+        self._create_glbs(3)
+        result = self.processor.process_batch(
+            str(self.mesh_dir), str(self.output_dir),
+            metadata_json=None,
+        )
+        self.assertEqual(result["total"], 3, "metadata なしでは全 3 件処理されるべき")
 
 
 if __name__ == "__main__":

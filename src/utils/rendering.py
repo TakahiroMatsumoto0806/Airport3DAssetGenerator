@@ -1,91 +1,70 @@
 """
 オフスクリーンレンダリングユーティリティ
 
-pyrender + OSMesa (headless) を使って GLB メッシュを複数視点からレンダリングする。
+pyrender + OSMesa で GLB メッシュを複数視点からレンダリングする。
+PBR マテリアル・UV テクスチャを正しく反映する。
 
-要件:
-  - 512×512 解像度
-  - PBR マテリアルを考慮した照明設定
-  - 4 方向（正面・右・背面・左）のデフォルト視点
-
-依存パッケージ:
-  - pyrender (pip install pyrender)
-  - OSMesa: sudo apt install libosmesa6-dev が必要
-    pyrender はヘッドレス環境では PYOPENGL_PLATFORM=osmesa が必要
+必要環境:
+  - PYOPENGL_PLATFORM=osmesa （Python 起動前に設定）
+  - sudo apt-get install -y libosmesa6-dev
+  - uv pip install pyrender PyOpenGL==3.1.7
 
 使用例:
+    import os; os.environ['PYOPENGL_PLATFORM'] = 'osmesa'
     from src.utils.rendering import render_multiview
 
     image_paths = render_multiview(
-        "outputs/meshes_raw/000001.glb",
+        "outputs/meshes_approved/000001.glb",
         output_dir="outputs/renders/000001",
         views=4,
     )
-    # → ["outputs/renders/000001/view_0.png", ...]
 """
 
 import math
 import os
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from loguru import logger
 
 
-# OSMesa ヘッドレスレンダリングに必要な環境変数
-# ディスプレイがない環境（DGX Spark の headless 環境）で必要
-os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
+# OSMesa (CPU ソフトウェアレンダラ) を強制使用する。
+# vLLM が GPU メモリをほぼ占有している環境でも GPU OOM を回避できる。
+# pyrender より先に設定する必要があるため、モジュール読み込み時に設定する。
+if os.environ.get("PYOPENGL_PLATFORM") != "osmesa":
+    os.environ["PYOPENGL_PLATFORM"] = "osmesa"
+    logger.debug("PYOPENGL_PLATFORM を 'osmesa' に自動設定しました")
 
 
-# デフォルトレンダリング解像度
 _RENDER_WIDTH = 512
 _RENDER_HEIGHT = 512
 
 
-def _make_camera_pose(
-    azimuth_deg: float,
-    elevation_deg: float = 20.0,
-    distance: float = 2.0,
-) -> np.ndarray:
+def _look_at_pose(eye: np.ndarray, target: np.ndarray) -> np.ndarray:
     """
-    球面座標からカメラの pose 行列（4×4）を生成する。
-
-    Args:
-        azimuth_deg:   水平角（0°=正面, 90°=右）
-        elevation_deg: 仰角（正の値で上方から見下ろし）
-        distance:      原点からの距離
-
-    Returns:
-        4×4 変換行列（カメラ→ワールド）
+    eye から target を向く 4×4 カメラポーズ行列（ワールド座標系）を返す。
+    pyrender は OpenGL 規約: カメラは +Z 方向を「後ろ」、-Z が視線方向。
     """
-    az = math.radians(azimuth_deg)
-    el = math.radians(elevation_deg)
+    f = target - eye
+    f_norm = np.linalg.norm(f)
+    if f_norm < 1e-8:
+        raise ValueError("eye と target が同一点です")
+    f = f / f_norm
 
-    # カメラ位置（球面座標）
-    cx = distance * math.cos(el) * math.sin(az)
-    cy = distance * math.sin(el)
-    cz = distance * math.cos(el) * math.cos(az)
+    up = np.array([0.0, 1.0, 0.0])
+    if abs(np.dot(f, up)) > 0.99:
+        up = np.array([0.0, 0.0, 1.0])
 
-    # Look-at: カメラは原点を向く
-    forward = -np.array([cx, cy, cz], dtype=np.float64)
-    forward /= np.linalg.norm(forward)
+    r = np.cross(f, up)
+    r /= np.linalg.norm(r)
+    u = np.cross(r, f)
 
-    up = np.array([0.0, 1.0, 0.0], dtype=np.float64)
-    right = np.cross(forward, up)
-    norm_right = np.linalg.norm(right)
-    if norm_right < 1e-8:
-        up = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-        right = np.cross(forward, up)
-    right /= np.linalg.norm(right)
-    up = np.cross(right, forward)
-
-    pose = np.eye(4, dtype=np.float64)
-    pose[:3, 0] = right
-    pose[:3, 1] = up
-    pose[:3, 2] = -forward
-    pose[:3, 3] = [cx, cy, cz]
-    return pose
+    pose = np.eye(4)
+    pose[:3, 0] = r      # X: 右
+    pose[:3, 1] = u      # Y: 上
+    pose[:3, 2] = -f     # Z: カメラ後方（-視線方向）
+    pose[:3, 3] = eye    # 位置
+    return pose.astype(np.float64)
 
 
 def render_multiview(
@@ -95,116 +74,120 @@ def render_multiview(
     width: int = _RENDER_WIDTH,
     height: int = _RENDER_HEIGHT,
     elevation_deg: float = 20.0,
-    distance: float = 2.0,
+    distance_scale: float = 2.2,
+    fov_y_deg: float = 45.0,
     prefix: str = "view",
 ) -> list[str]:
     """
-    GLB メッシュを複数視点からオフスクリーンレンダリングして PNG として保存する。
+    GLB メッシュを複数視点から pyrender + OSMesa でオフスクリーンレンダリングし
+    PNG として保存する。PBR マテリアル・UV テクスチャを正しく反映する。
 
     Args:
-        mesh_path:     入力 GLB ファイルパス
-        output_dir:    レンダリング画像の保存先ディレクトリ
-        views:         レンダリング視点数（等間隔に水平に配置）
-        width:         画像幅（デフォルト 512）
-        height:        画像高さ（デフォルト 512）
-        elevation_deg: カメラ仰角（デフォルト 20°）
-        distance:      カメラ距離（デフォルト 2.0）
-        prefix:        出力ファイル名プレフィックス
+        mesh_path:       入力 GLB ファイルパス
+        output_dir:      レンダリング画像の保存先ディレクトリ
+        views:           レンダリング視点数（水平等間隔）
+        width:           画像幅（px）
+        height:          画像高さ（px）
+        elevation_deg:   カメラ仰角（度）
+        distance_scale:  バウンディングボックス最大辺に掛けるカメラ距離倍率
+        fov_y_deg:       縦方向視野角（度）
+        prefix:          出力ファイル名プレフィックス
 
     Returns:
-        list[str]: 保存された PNG ファイルのパスリスト（views 件）
-
-    Raises:
-        ImportError: pyrender がインストールされていない場合
-        RuntimeError: メッシュロードまたはレンダリング失敗
+        list[str]: 保存された PNG ファイルパスのリスト（views 件）
     """
-    try:
-        import pyrender
-        import trimesh
-    except ImportError as e:
-        raise ImportError(
-            f"pyrender または trimesh が見つかりません: {e}\n"
-            "pip install pyrender を実行してください。\n"
-            "OSMesa のインストール: sudo apt install libosmesa6-dev"
-        ) from e
-
+    import pyrender
+    import trimesh
     from PIL import Image
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # GLB ロード（trimesh）
+    # --- GLB をシーンとしてロード ---
     try:
-        loaded = trimesh.load(str(mesh_path), force="scene")
+        scene_tm = trimesh.load(str(mesh_path), process=False)
     except Exception as e:
-        raise RuntimeError(f"メッシュロード失敗 ({mesh_path}): {e}") from e
+        raise RuntimeError(f"GLB ロード失敗 ({mesh_path}): {e}") from e
 
-    # trimesh.Scene → pyrender.Scene 変換
+    # trimesh.Trimesh の場合は Scene にラップする
+    if isinstance(scene_tm, trimesh.Trimesh):
+        scene_tm = trimesh.Scene({"mesh": scene_tm})
+
+    # --- バウンディングボックスを計算してカメラ距離を決定 ---
     try:
-        scene = pyrender.Scene.from_trimesh_scene(loaded)
+        all_verts = np.concatenate([m.vertices for m in scene_tm.geometry.values()])
     except Exception:
-        # force="mesh" にフォールバック
-        try:
-            mesh_obj = trimesh.load(str(mesh_path), force="mesh", process=False)
-            pr_mesh = pyrender.Mesh.from_trimesh(mesh_obj)
-            scene = pyrender.Scene()
-            scene.add(pr_mesh)
-        except Exception as e2:
-            raise RuntimeError(f"pyrender シーン作成失敗 ({mesh_path}): {e2}") from e2
+        raise RuntimeError(f"GLB にジオメトリが見つかりません: {mesh_path}")
 
-    # シーンの AABB を計算して距離をスケール
-    try:
-        bounds = loaded.bounds if hasattr(loaded, "bounds") else None
-        if bounds is not None:
-            extent = np.max(bounds[1] - bounds[0])
-            if extent > 0:
-                distance = extent * distance
-    except Exception:
-        pass
+    bb_min = all_verts.min(axis=0)
+    bb_max = all_verts.max(axis=0)
+    center = (bb_min + bb_max) / 2.0
+    extent = (bb_max - bb_min).max()
+    cam_dist = extent * distance_scale
 
-    # カメラ設定
-    camera = pyrender.PerspectiveCamera(yfov=math.radians(45.0), znear=0.01)
-
-    # 照明設定（環境光 + ポイントライト 2 個）
-    light_color = np.array([1.0, 1.0, 1.0])
-    ambient = pyrender.DirectionalLight(color=light_color, intensity=3.0)
-    fill = pyrender.DirectionalLight(color=light_color, intensity=1.5)
-
-    # オフスクリーンレンダラー
-    renderer = pyrender.OffscreenRenderer(viewport_width=width, viewport_height=height)
-
-    output_paths: list[str] = []
+    fov_y = math.radians(fov_y_deg)
+    el = math.radians(elevation_deg)
     azimuths = [i * (360.0 / views) for i in range(views)]
 
+    # pyrender の OffscreenRenderer は一度だけ生成して使い回す
+    renderer = pyrender.OffscreenRenderer(viewport_width=width, viewport_height=height)
+    output_paths: list[str] = []
+
     try:
-        for i, az in enumerate(azimuths):
-            pose = _make_camera_pose(az, elevation_deg, distance)
+        for i, az_deg in enumerate(azimuths):
+            az = math.radians(az_deg)
 
-            # ノード追加（毎回クリア）
-            cam_node = scene.add(camera, pose=pose)
+            # カメラ位置（球面座標 → デカルト、Y軸が上）
+            eye = np.array([
+                center[0] + cam_dist * math.cos(el) * math.sin(az),
+                center[1] + cam_dist * math.sin(el),
+                center[2] + cam_dist * math.cos(el) * math.cos(az),
+            ])
 
-            # 照明を正面と背面から
-            light_pose1 = _make_camera_pose(az, 40.0, distance * 1.5)
-            light_pose2 = _make_camera_pose(az + 180.0, 20.0, distance * 1.5)
-            ln1 = scene.add(ambient, pose=light_pose1)
-            ln2 = scene.add(fill, pose=light_pose2)
+            cam_pose = _look_at_pose(eye, center)
+
+            # pyrender シーンを毎視点ごとに生成（trimesh scene に camera/light を追加）
+            try:
+                pr_scene = pyrender.Scene.from_trimesh_scene(
+                    scene_tm,
+                    bg_color=np.array([1.0, 1.0, 1.0, 1.0]),
+                )
+            except Exception as e:
+                raise RuntimeError(f"pyrender シーン生成失敗: {e}") from e
+
+            # カメラ追加
+            cam = pyrender.PerspectiveCamera(yfov=fov_y, znear=extent * 0.01, zfar=extent * 10.0)
+            pr_scene.add(cam, pose=cam_pose)
+
+            # メインライト（カメラ方向から）
+            main_light = pyrender.DirectionalLight(color=np.ones(3), intensity=4.0)
+            pr_scene.add(main_light, pose=cam_pose)
+
+            # フィルライト（斜め上から）
+            fill_pose = _look_at_pose(
+                eye=center + np.array([cam_dist * 0.3, cam_dist * 0.6, cam_dist * 0.3]),
+                target=center,
+            )
+            fill_light = pyrender.DirectionalLight(color=np.ones(3), intensity=1.5)
+            pr_scene.add(fill_light, pose=fill_pose)
+
+            # アンビエント代替（正面固定の弱いライト）
+            ambient_pose = _look_at_pose(
+                eye=center + np.array([0, cam_dist * 0.1, cam_dist]),
+                target=center,
+            )
+            ambient_light = pyrender.DirectionalLight(color=np.ones(3), intensity=0.8)
+            pr_scene.add(ambient_light, pose=ambient_pose)
 
             # レンダリング
-            color, _ = renderer.render(scene)
+            color, _depth = renderer.render(pr_scene)
 
-            # PNG 保存
-            img = Image.fromarray(color, "RGB")
             out_path = str(output_dir / f"{prefix}_{i}.png")
-            img.save(out_path)
+            Image.fromarray(color, "RGB").save(out_path)
             output_paths.append(out_path)
 
-            # ノード削除（次のビューのために）
-            scene.remove_node(cam_node)
-            scene.remove_node(ln1)
-            scene.remove_node(ln2)
-
+        logger.debug(f"  pyrender レンダリング完了: {len(output_paths)} 枚 → {output_dir}")
     finally:
         renderer.delete()
 
-    logger.debug(f"  レンダリング完了: {len(output_paths)} 枚 → {output_dir}")
     return output_paths

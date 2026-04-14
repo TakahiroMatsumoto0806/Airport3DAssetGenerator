@@ -2,28 +2,18 @@
 T-4.2: シミュレータエクスポート
 
 assets_final/ 配下のアセット（visual.glb + collision_*.stl + physics.json）を
-MJCF (MuJoCo) 形式と Isaac Sim 用 USD 変換メタデータ JSON に変換する。
+Isaac Sim 用 USDA ファイルおよびメタデータ JSON に変換する。
 
-MJCF 出力:
-  - visual mesh (GLB → OBJ 変換、obj2mjcf を活用)
-  - collision meshes (STL)
-  - mass, inertia, friction, restitution
-  - robosuite MujocoObject 互換フォーマット
-
-Isaac Sim USD メタデータ:
-  - visual / collision mesh のパス
-  - 物理プロパティ（Isaac Lab MeshConverterCfg 互換形式）
-  - 実際の USD 変換は Isaac Sim 環境（Nucleus サーバー接続時）で実行
+Isaac Sim USDA 出力:
+  - USDA ASCII 形式（pxr 不要、ARM64 Linux でも動作）
+  - PhysicsRigidBodyAPI / PhysicsMassAPI / PhysicsMaterialAPI を inline 付与
+  - visual.glb をペイロード参照（PBR テクスチャ・UV 保持）
+  - collision_*.stl を Mesh prim として trimesh 経由で埋め込み
 
 使用例:
     exporter = SimExporter()
 
-    mjcf_path = exporter.export_mjcf(
-        "outputs/assets_final/000001",
-        "outputs/assets_final/000001/mjcf",
-    )
-
-    usd_meta_path = exporter.export_usd_metadata(
+    json_path = exporter.export_usd_metadata(
         "outputs/assets_final/000001",
         "outputs/assets_final/000001",
     )
@@ -31,22 +21,17 @@ Isaac Sim USD メタデータ:
     summary = exporter.export_batch(
         assets_dir="outputs/assets_final",
         output_dir="outputs/assets_final",
-        format="both",
     )
 """
 
 import json
-import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Optional
-from xml.dom.minidom import parseString
 
-import numpy as np
 from loguru import logger
 
 
 class SimExporter:
-    """MJCF + Isaac Sim USD メタデータ エクスポーター"""
+    """Isaac Sim USDA エクスポーター"""
 
     # ------------------------------------------------------------------
     # 内部ヘルパー
@@ -70,34 +55,6 @@ class SimExporter:
         """collision_*.stl を昇順で返す"""
         return sorted((asset_dir / "collisions").glob("collision_*.stl"))
 
-    def _glb_to_obj(self, glb_path: Path, output_dir: Path) -> Path:
-        """GLB → OBJ に変換する（trimesh を使用）"""
-        import trimesh
-
-        output_dir.mkdir(parents=True, exist_ok=True)
-        obj_path = output_dir / f"{glb_path.stem}.obj"
-
-        loaded = trimesh.load(str(glb_path), force="mesh", process=False)
-        if isinstance(loaded, trimesh.Scene):
-            loaded = trimesh.util.concatenate(list(loaded.dump()))
-
-        loaded.export(str(obj_path), file_type="obj")
-        return obj_path
-
-    def _compute_inertia(self, mass_kg: float, extents_m: list[float]) -> dict:
-        """
-        直方体近似で慣性テンソルの対角成分を計算する。
-
-        I_x = 1/12 * m * (y² + z²)
-        I_y = 1/12 * m * (x² + z²)
-        I_z = 1/12 * m * (x² + y²)
-        """
-        x, y, z = extents_m
-        ixx = (1.0 / 12.0) * mass_kg * (y**2 + z**2)
-        iyy = (1.0 / 12.0) * mass_kg * (x**2 + z**2)
-        izz = (1.0 / 12.0) * mass_kg * (x**2 + y**2)
-        return {"ixx": ixx, "iyy": iyy, "izz": izz, "ixy": 0.0, "ixz": 0.0, "iyz": 0.0}
-
     def _get_extents(self, mesh_path: Path) -> list[float]:
         """メッシュの AABB サイズ [x, y, z] を返す（単位: m）"""
         import trimesh
@@ -106,141 +63,96 @@ class SimExporter:
             loaded = trimesh.util.concatenate(list(loaded.dump()))
         return loaded.extents.tolist()
 
-    # ------------------------------------------------------------------
-    # MJCF エクスポート
-    # ------------------------------------------------------------------
-
-    def export_mjcf(
-        self,
-        asset_dir: str,
-        output_dir: str,
-    ) -> str:
+    def _generate_usda(self, asset_dir: Path, output_path: Path, physics: dict) -> None:
         """
-        アセットを MJCF XML 形式でエクスポートする。
+        USDA ASCII ファイルを生成する（pxr 不要）。
 
-        robosuite MujocoObject 互換レイアウト:
-          <mujoco>
-            <asset>
-              <mesh name="visual" file="visual.obj"/>
-              <mesh name="collision_000" file="collisions/collision_000.stl"/>
-              ...
-            </asset>
-            <worldbody>
-              <body name="{asset_id}">
-                <freejoint/>
-                <inertial mass="..." pos="0 0 0" diaginertia="..."/>
-                <geom type="mesh" mesh="visual" class="visual"/>
-                <geom type="mesh" mesh="collision_000" class="collision"/>
-                ...
-              </body>
-            </worldbody>
-            <default>
-              <default class="visual">
-                <geom contype="0" conaffinity="0" group="1"/>
-              </default>
-              <default class="collision">
-                <geom contype="1" conaffinity="1" friction="..."/>
-              </default>
-            </default>
-          </mujoco>
-
-        Args:
-            asset_dir:  アセットディレクトリ（visual.glb, collisions/, physics.json を含む）
-            output_dir: MJCF 出力先ディレクトリ
-
-        Returns:
-            str: 出力 MJCF ファイルパス
+        ビジュアルメッシュは @./visual.glb@ としてペイロード参照し、
+        コリジョンメッシュは trimesh で STL を読み込み Mesh prim として埋め込む。
+        物理プロパティは PhysicsRigidBodyAPI / PhysicsMassAPI / PhysicsMaterialAPI で付与する。
         """
-        asset_dir = Path(asset_dir)
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        import trimesh
 
         asset_id = asset_dir.name
-        physics = self._load_physics(asset_dir)
+        # USD prim 名は数字・ハイフン始まり禁止
+        asset_id_safe = asset_id.replace("-", "_")
+        if asset_id_safe[0].isdigit():
+            asset_id_safe = "asset_" + asset_id_safe
+
         mass_kg = float(physics.get("mass_kg", 0.5))
-        static_f = float(physics.get("static_friction", 0.40))
-        dynamic_f = float(physics.get("dynamic_friction", 0.35))
+        static_friction = float(physics.get("static_friction", 0.40))
+        dynamic_friction = float(physics.get("dynamic_friction", 0.35))
         restitution = float(physics.get("restitution", 0.15))
 
-        # visual GLB → OBJ 変換
-        visual_glb = asset_dir / "visual.glb"
-        if not visual_glb.exists():
-            raise FileNotFoundError(f"visual.glb が見つかりません: {visual_glb}")
-
-        obj_path = self._glb_to_obj(visual_glb, output_dir)
-
-        # 慣性計算
-        try:
-            extents = self._get_extents(visual_glb)
-        except Exception:
-            extents = [0.06, 0.04, 0.08]
-        inertia = self._compute_inertia(mass_kg, extents)
-
-        # STL パスリスト（output_dir 相対パス用にコピー）
+        # コリジョン Mesh prim 文字列を生成
         collision_stls = self._find_collision_stls(asset_dir)
-        collision_dest_dir = output_dir / "collisions"
-        collision_dest_dir.mkdir(exist_ok=True)
-
-        import shutil
-        copied_stls: list[Path] = []
-        for stl in collision_stls:
-            dest = collision_dest_dir / stl.name
-            if stl != dest:
-                shutil.copy2(str(stl), str(dest))
-            copied_stls.append(dest)
-
-        # XML 構築
-        mujoco = ET.Element("mujoco", model=asset_id)
-
-        # <compiler>
-        ET.SubElement(mujoco, "compiler", meshdir=".", angle="radian")
-
-        # <default>
-        default = ET.SubElement(mujoco, "default")
-        vis_default = ET.SubElement(default, "default", **{"class": "visual"})
-        ET.SubElement(vis_default, "geom", contype="0", conaffinity="0", group="1")
-        col_default = ET.SubElement(default, "default", **{"class": "collision"})
-        ET.SubElement(
-            col_default, "geom",
-            contype="1", conaffinity="1",
-            friction=f"{static_f:.4f} {dynamic_f:.4f} {restitution:.4f}",
-        )
-
-        # <asset>
-        asset = ET.SubElement(mujoco, "asset")
-        ET.SubElement(asset, "mesh", name="visual", file=obj_path.name)
-        for stl in copied_stls:
-            ET.SubElement(
-                asset, "mesh",
-                name=stl.stem,
-                file=str(Path("collisions") / stl.name),
+        collision_prim_blocks = []
+        for i, stl_path in enumerate(collision_stls):
+            mesh = trimesh.load(str(stl_path), force="mesh", process=False)
+            pts = ", ".join(
+                f"({v[0]:.6f}, {v[1]:.6f}, {v[2]:.6f})" for v in mesh.vertices
             )
+            counts = ", ".join("3" for _ in mesh.faces)
+            indices = ", ".join(str(idx) for face in mesh.faces for idx in face)
+            block = (
+                f'        def Mesh "collision_{i:03d}" (\n'
+                f'            prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]\n'
+                f"        )\n"
+                f"        {{\n"
+                f'            uniform token physics:approximation = "convexHull"\n'
+                f"            point3f[] points = [{pts}]\n"
+                f"            int[] faceVertexCounts = [{counts}]\n"
+                f"            int[] faceVertexIndices = [{indices}]\n"
+                f"        }}"
+            )
+            collision_prim_blocks.append(block)
 
-        # <worldbody>
-        worldbody = ET.SubElement(mujoco, "worldbody")
-        body = ET.SubElement(worldbody, "body", name=asset_id, pos="0 0 0")
-        ET.SubElement(body, "freejoint")
-        ET.SubElement(
-            body, "inertial",
-            mass=f"{mass_kg:.6f}",
-            pos="0 0 0",
-            diaginertia=f"{inertia['ixx']:.8f} {inertia['iyy']:.8f} {inertia['izz']:.8f}",
+        collisions_section = "\n".join(collision_prim_blocks)
+
+        usda_text = (
+            "#usda 1.0\n"
+            "(\n"
+            f'    defaultPrim = "{asset_id_safe}"\n'
+            "    metersPerUnit = 1.0\n"
+            '    upAxis = "Y"\n'
+            ")\n"
+            "\n"
+            f'def Xform "{asset_id_safe}" (\n'
+            '    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]\n'
+            ")\n"
+            "{\n"
+            f"    float physics:mass = {mass_kg}\n"
+            "\n"
+            '    def Material "physics_material" (\n'
+            '        prepend apiSchemas = ["PhysicsMaterialAPI"]\n'
+            "    )\n"
+            "    {\n"
+            f"        float physics:staticFriction = {static_friction}\n"
+            f"        float physics:dynamicFriction = {dynamic_friction}\n"
+            f"        float physics:restitution = {restitution}\n"
+            "    }\n"
+            "\n"
+            # payload（lazy loading）でGLBを参照。
+            # GITFインポーターを持たないビューアは payload をスキップするため
+            # フォーマットエラーを起こさない。
+            # Isaac Sim はステージを開く際に payload を全て読み込むため、
+            # omni.importer.gltf が PBR テクスチャを UsdPreviewSurface/OmniPBR へ
+            # 自動変換し、テクスチャが表示される。
+            '    def Xform "visual" (\n'
+            "        prepend payload = @./visual.glb@\n"
+            "    )\n"
+            "    {\n"
+            "    }\n"
+            "\n"
+            '    def Xform "collisions"\n'
+            "    {\n"
+            f"{collisions_section}\n"
+            "    }\n"
+            "}\n"
         )
-        ET.SubElement(body, "geom", type="mesh", mesh="visual", **{"class": "visual"})
-        for stl in copied_stls:
-            ET.SubElement(body, "geom", type="mesh", mesh=stl.stem, **{"class": "collision"})
 
-        # 整形して保存
-        xml_str = parseString(ET.tostring(mujoco, encoding="unicode")).toprettyxml(indent="  ")
-        # 先頭の XML 宣言を除去（MuJoCo は宣言不要）
-        xml_str = "\n".join(xml_str.split("\n")[1:])
-
-        mjcf_path = output_dir / f"{asset_id}.xml"
-        with open(mjcf_path, "w", encoding="utf-8") as f:
-            f.write(xml_str)
-
-        logger.info(f"  MJCF エクスポート: {mjcf_path}")
-        return str(mjcf_path)
+        output_path.write_text(usda_text, encoding="utf-8")
+        logger.debug(f"  USDA 生成完了: {output_path} ({len(collision_stls)} コリジョン)")
 
     # ------------------------------------------------------------------
     # Isaac Sim USD メタデータ
@@ -252,29 +164,15 @@ class SimExporter:
         output_dir: str,
     ) -> str:
         """
-        Isaac Sim 用の USD 変換メタデータを JSON で出力する。
+        Isaac Sim 用の USDA ファイルおよびメタデータ JSON を出力する。
 
-        Isaac Lab MeshConverterCfg 互換形式:
-        {
-          "asset_id":            str,
-          "visual_mesh_path":    str,   # visual.glb への絶対パス
-          "collision_mesh_paths": [str],
-          "physics": {
-            "mass_kg":           float,
-            "static_friction":   float,
-            "dynamic_friction":  float,
-            "restitution":       float,
-          },
-          "usd_output_path":     str,   # 出力先 .usd ファイルパス（Isaac Sim で生成）
-          "conversion_config": {
-            "make_instanceable":  true,
-            "collision_approximation": "convexHull",
-          }
-        }
+        出力ファイル:
+          - {asset_id}_usd_meta.json  … Isaac Lab MeshConverterCfg 互換メタデータ
+          - {asset_id}.usda           … Isaac Sim 直接インポート可能な USDA
 
         Args:
-            asset_dir:  アセットディレクトリ
-            output_dir: メタデータ JSON の出力先
+            asset_dir:  アセットディレクトリ（visual.glb / collisions/ / physics.json を含む）
+            output_dir: 出力先ディレクトリ
 
         Returns:
             str: 出力 JSON ファイルパス
@@ -289,6 +187,8 @@ class SimExporter:
         visual_glb = asset_dir / "visual.glb"
         collision_stls = self._find_collision_stls(asset_dir)
 
+        usda_output_path = output_dir / f"{asset_id}.usda"
+
         metadata = {
             "asset_id": asset_id,
             "visual_mesh_path": str(visual_glb),
@@ -299,7 +199,7 @@ class SimExporter:
                 "dynamic_friction": float(physics.get("dynamic_friction", 0.35)),
                 "restitution": float(physics.get("restitution", 0.15)),
             },
-            "usd_output_path": str(output_dir / f"{asset_id}.usd"),
+            "usd_output_path": str(usda_output_path),
             "conversion_config": {
                 "make_instanceable": True,
                 "collision_approximation": "convexDecomposition",
@@ -313,6 +213,11 @@ class SimExporter:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
 
         logger.info(f"  USD メタデータ出力: {json_path}")
+
+        # USDA ファイル生成
+        self._generate_usda(asset_dir, usda_output_path, physics)
+        logger.info(f"  USDA ファイル出力: {usda_output_path}")
+
         return str(json_path)
 
     # ------------------------------------------------------------------
@@ -323,7 +228,6 @@ class SimExporter:
         self,
         assets_dir: str,
         output_dir: str,
-        format: str = "both",
         resume: bool = True,
     ) -> dict:
         """
@@ -332,8 +236,7 @@ class SimExporter:
         Args:
             assets_dir: アセットルートディレクトリ（各サブディレクトリがアセット）
             output_dir: 出力ルートディレクトリ
-            format:     "mjcf" | "usd" | "both"（デフォルト "both"）
-            resume:     True の場合、既に出力済みのアセットをスキップ
+            resume:     True の場合、既に USDA が出力済みのアセットをスキップ
 
         Returns:
             {
@@ -361,39 +264,28 @@ class SimExporter:
             asset_id = asset_dir.name
             asset_output = output_dir / asset_id
 
-            entry: dict = {"asset_id": asset_id, "mjcf_path": None, "usd_meta_path": None,
-                           "status": "failed", "error": None}
+            entry: dict = {
+                "asset_id": asset_id,
+                "usd_meta_path": None,
+                "usda_path": None,
+                "status": "failed",
+                "error": None,
+            }
 
-            # resume チェック
-            already_mjcf = (asset_output / "mjcf" / f"{asset_id}.xml").exists()
-            already_usd = (asset_output / f"{asset_id}_usd_meta.json").exists()
-            if resume:
-                if format == "both" and already_mjcf and already_usd:
-                    entry["status"] = "skipped"
-                    success += 1
-                    results.append(entry)
-                    continue
-                elif format == "mjcf" and already_mjcf:
-                    entry["status"] = "skipped"
-                    success += 1
-                    results.append(entry)
-                    continue
-                elif format == "usd" and already_usd:
-                    entry["status"] = "skipped"
-                    success += 1
-                    results.append(entry)
-                    continue
+            # resume チェック（USDA が存在すればスキップ）
+            already_usda = (asset_output / f"{asset_id}.usda").exists()
+            if resume and already_usda:
+                entry["status"] = "skipped"
+                entry["usda_path"] = str(asset_output / f"{asset_id}.usda")
+                success += 1
+                results.append(entry)
+                continue
 
             try:
-                if format in ("mjcf", "both"):
-                    mjcf_output = asset_output / "mjcf"
-                    entry["mjcf_path"] = self.export_mjcf(str(asset_dir), str(mjcf_output))
-
-                if format in ("usd", "both"):
-                    entry["usd_meta_path"] = self.export_usd_metadata(
-                        str(asset_dir), str(asset_output)
-                    )
-
+                entry["usd_meta_path"] = self.export_usd_metadata(
+                    str(asset_dir), str(asset_output)
+                )
+                entry["usda_path"] = str(asset_output / f"{asset_id}.usda")
                 entry["status"] = "success"
                 success += 1
 
