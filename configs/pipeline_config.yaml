@@ -53,14 +53,14 @@ models:
 
   # TRELLIS.2 (Image-to-3D)
   trellis:
-    model_dir: "~/models/TRELLIS-image-large"
+    model_dir: "~/models/TRELLIS.2-4B"
     # TRELLIS.2 は別 conda 環境で実行すること
     # conda activate trellis && python scripts/run_step.py --step mesh_generation
 
   # Qwen3-VL-32B (VLM/LLM) — vLLM サーバーとして使用
   vlm:
     base_url: "http://localhost:8001/v1"
-    model_name: "/home/ntt/models/Qwen3-VL-32B-Instruct"
+    model_name: "~/models/Qwen3-VL-32B-Instruct"  # 他ユーザーは自分の $HOME/models/ に合わせて変更
     temperature: 0.1
     max_tokens: 2048
     # 起動コマンド:

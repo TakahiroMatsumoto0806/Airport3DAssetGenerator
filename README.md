@@ -14,15 +14,19 @@
 git clone https://github.com/TakahiroMatsumoto0806/Airport3DAssetGenerator.git
 cd Airport3DAssetGenerator/al3dg
 
-# 依存パッケージ・環境のセットアップ
+# 依存パッケージ・Python 仮想環境のセットアップ
 bash scripts/setup_environment.sh
 
-# モデルダウンロード（~117GB、HF アカウント必要）
+# 仮想環境をアクティベート（以降のコマンドはすべてこの venv 内で実行）
+source .venv/bin/activate
+
+# Hugging Face にログイン（モデルダウンロード前に必須）
 huggingface-cli login
+
+# モデルダウンロード（~117GB）
 python scripts/download_models.py
 
-# 実行
-source .venv/bin/activate
+# パイプライン実行
 python scripts/run_pipeline.py
 ```
 
@@ -90,6 +94,7 @@ docker compose run --rm al3dg python scripts/run_step.py --step mesh_qa
 | Python | 3.11（`uv venv` で自動インストール） |
 | ディスク空き容量 | モデル ~117GB + 出力 ~10GB = **合計 130GB 以上** |
 | sudo 権限 | 必要（`apt-get` でシステムパッケージをインストール） |
+| git / curl | 事前にインストール済みであること（`sudo apt install git curl`） |
 | ネットワーク | Method A: Hugging Face へのアクセス / Method B: 共有ドライブ or SCP |
 | ポート 8001 | vLLM サーバー用（他プロセスと競合しないこと） |
 
@@ -164,7 +169,7 @@ QA-1:  画像検品         (Qwen3-VL-32B, /no_think, realism≥7, integrity≥7
 Step 3: 3D 生成         (TRELLIS.2-4B, 別 PC で実行 → GLB を転送)
     ↓
 QA-2a: メッシュ QA      (Open3D + trimesh, ルールベース)
-QA-2b: VLM 3D 検品      (Qwen3-VL-32B, /think, geometry≥5, texture≥4)
+QA-2b: VLM 3D 検品      (Qwen3-VL-32B, /think, geometry≥6, texture≥5)
     ↓
 Step 4: 物理プロパティ  (CoACD 凸分解 + material_properties.yaml)
     ↓
@@ -314,7 +319,7 @@ generation:
 models:
   vlm:
     base_url: "http://localhost:8001/v1"  # vLLM サーバーの URL
-    model_name: "/home/ntt/models/Qwen3-VL-32B-Instruct"
+    model_name: "~/models/Qwen3-VL-32B-Instruct"  # ← ユーザーごとに要確認
 
 image_qa:
   thresholds:
@@ -373,18 +378,17 @@ python scripts/measure_pass_rates.py --skip-pipeline
 
 ## レポートの確認
 
+DGX Spark はヘッドレスサーバーのため、`open` コマンドは使用できません。
+ローカル PC のブラウザからアクセスするには以下のいずれかの方法を使用してください。
+
 ```bash
-# プロンプト確認・VLM リファイン入出力
-open outputs/reports/prompt_review.html
+# 方法 1: HTTP サーバーを起動してブラウザアクセス（推奨）
+python3 -m http.server 8080 --directory outputs/reports/
+# → ローカル PC のブラウザで http://<DGX-Spark-IP>:8080 を開く
 
-# 画像 QA 検品結果（スコア・合否・画像サムネイル）
-open outputs/reports/image_qa_review.html
-
-# 3D 検品結果（マルチビュー画像・スコア・問題点）
-open outputs/reports/mesh_vlm_qa_review.html
-
-# カテゴリ別合格率レポート
-open outputs/reports/pass_rate_report.html
+# 方法 2: ローカル PC に scp でコピー
+scp -r user@dgx-spark:~/Airport3DAssetGenerator/al3dg/outputs/reports/ ~/al3dg_reports/
+# → ローカル PC でファイルをブラウザで開く
 ```
 
 | レポート | 内容 |

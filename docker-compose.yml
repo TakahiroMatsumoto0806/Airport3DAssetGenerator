@@ -3,9 +3,12 @@
 # DGX Spark (Grace Blackwell GB10, 128GB unified memory) 向け
 #
 # 使い方:
-#   docker compose build          # イメージビルド
-#   docker compose up             # パイプライン実行
-#   docker compose run --rm al3dg python scripts/run_step.py --step mesh_qa
+#   docker compose build                                                   # イメージビルド
+#   docker compose run --rm al3dg python scripts/run_pipeline.py          # フルパイプライン実行
+#   docker compose run --rm al3dg python scripts/run_step.py --step mesh_qa  # 個別ステップ実行
+#
+# ※ docker compose up はデフォルトコマンド（--help 表示）のみ実行されます。
+#   パイプライン実行には必ず docker compose run --rm al3dg ... を使用してください。
 #
 # 前提条件:
 #   - ~/models/ に Qwen3-VL-32B-Instruct / FLUX.1-schnell を配置済み
