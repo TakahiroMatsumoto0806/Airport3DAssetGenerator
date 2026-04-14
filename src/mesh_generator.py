@@ -4,7 +4,7 @@ T-3.1: 3D モデル生成エンジン
 TRELLIS.2-4B (microsoft/TRELLIS.2-4B) を使った Image-to-3D 生成。
 
 TRELLIS.2 公式 API:
-  import sys; sys.path.insert(0, '~/trellis2_space')
+  import sys; sys.path.insert(0, '~/trellis2')
   from trellis2.pipelines import Trellis2ImageTo3DPipeline
 
   pipeline = Trellis2ImageTo3DPipeline.from_pretrained("~/models/TRELLIS.2-4B")
@@ -180,7 +180,7 @@ class MeshGenerator:
         os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-        trellis2_repo = str(Path("~/trellis2_space").expanduser())
+        trellis2_repo = str(Path("~/trellis2").expanduser())
         if trellis2_repo not in sys.path:
             sys.path.insert(0, trellis2_repo)
 
@@ -189,7 +189,7 @@ class MeshGenerator:
         except ImportError as e:
             raise ImportError(
                 f"trellis2 パッケージが見つかりません: {e}\n"
-                "~/trellis2_space が存在するか確認してください。"
+                "~/trellis2 が存在するか確認してください。"
             ) from e
 
         model_path = str(Path(model_path).expanduser())

@@ -25,7 +25,7 @@ steps:
   t1_prompt_generation: true
   t2_image_generation: true
   t2_image_qa: true
-  t3_mesh_generation: true
+  t3_mesh_generation: false   # DGX Spark では false（TRELLIS.2 は x86_64 別 PC で実行）
   t3_mesh_qa: true
   t3_mesh_vlm_qa: true
   t4_physics: true

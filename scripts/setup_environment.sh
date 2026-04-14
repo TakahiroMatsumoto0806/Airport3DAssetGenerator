@@ -101,30 +101,18 @@ log "vLLM 起動スクリプト: scripts/start_vllm_server.sh"
 log "  起動方法: bash scripts/start_vllm_server.sh"
 
 # ---- 10. TRELLIS.2 コードのセットアップ ----
-# TRELLIS.2 は pip 配布なし。GitHub repo を clone して付属の setup.sh でインストール。
-# setup.sh は conda 環境 "trellis2" を作成する。
-log "=== Step 10: TRELLIS.2 コードのセットアップ ==="
+# TRELLIS.2 は DGX Spark (aarch64) では動作しない。x86_64 + RTX 5090 の別 PC で実行すること。
+# ここでは参照用にコードのみ clone する（失敗してもセットアップは続行）。
+log "=== Step 10: TRELLIS.2 コードの clone（参照用）==="
+log "  ※ TRELLIS.2 は DGX Spark(aarch64) では動作しません。別 PC で実行してください。"
 TRELLIS_CODE_DIR="${HOME}/trellis2"
 if [ ! -d "${TRELLIS_CODE_DIR}" ]; then
-    log "TRELLIS.2 を clone: ${TRELLIS_CODE_DIR}"
-    git clone --depth 1 https://github.com/microsoft/TRELLIS.2 "${TRELLIS_CODE_DIR}"
+    log "  TRELLIS.2 を clone: ${TRELLIS_CODE_DIR}"
+    git clone --depth 1 https://github.com/microsoft/TRELLIS.2 "${TRELLIS_CODE_DIR}" \
+        || warn "  TRELLIS.2 の clone に失敗しました（ネットワーク不可または repo 不在）。別 PC で手動 clone してください。"
 else
-    log "TRELLIS.2 は既に clone 済み: ${TRELLIS_CODE_DIR}"
+    log "  TRELLIS.2 は既に clone 済み: ${TRELLIS_CODE_DIR}"
     git -C "${TRELLIS_CODE_DIR}" pull --ff-only || true
-fi
-
-# conda が利用可能な場合のみ自動セットアップを試みる
-if command -v conda &>/dev/null; then
-    log "TRELLIS.2 setup.sh を実行します..."
-    pushd "${TRELLIS_CODE_DIR}" > /dev/null
-    bash setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel
-    popd > /dev/null
-    log "TRELLIS.2 セットアップ完了 (conda 環境: trellis2)"
-else
-    log "WARNING: conda が見つかりません。TRELLIS.2 のセットアップをスキップします。"
-    log "  以下を手動で実行してください:"
-    log "    cd ${TRELLIS_CODE_DIR}"
-    log "    . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel"
 fi
 
 # ---- 完了 ----
@@ -133,8 +121,12 @@ log "=== 環境構築完了 ==="
 log ""
 log "次のステップ:"
 log "  1. source .venv/bin/activate"
-log "  2. python scripts/download_models.py   # モデルダウンロード (T-0.2)"
-log "  3. python tests/test_gpu_models.py     # GPU 動作確認 (T-0.3)"
+if [ "${AL3DG_SKIP_MODEL_DOWNLOAD:-0}" != "1" ]; then
+    log "  2. python scripts/download_models.py   # モデルダウンロード (T-0.2)"
+    log "  3. python tests/test_gpu_models.py     # GPU 動作確認 (T-0.3)"
+else
+    log "  2. python tests/test_gpu_models.py     # GPU 動作確認 (T-0.3)"
+fi
 log ""
-log "TRELLIS.2 を使う際は:"
+log "TRELLIS.2 を使う際は（x86_64 PC のみ）:"
 log "  conda activate trellis2"

@@ -72,6 +72,7 @@ dependencies = [
     "huggingface-hub>=0.24.0",
     "safetensors>=0.4.0",
     "einops>=0.8.0",
+    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]

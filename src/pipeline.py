@@ -214,7 +214,7 @@ class AL3DGPipeline:
 
         gen = MeshGenerator(
             model_path=self.cfg.models.trellis.get(
-                "model_dir", "~/models/TRELLIS-image-large"
+                "model_dir", "~/models/TRELLIS.2-4B"
             ),
         )
         try:

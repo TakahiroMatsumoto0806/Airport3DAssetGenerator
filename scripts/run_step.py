@@ -10,7 +10,7 @@ T-6.2: 個別ステップ実行スクリプト
     python scripts/run_step.py --step prompt
 
     # メッシュ生成 (TRELLIS.2 conda 環境で実行)
-    conda activate trellis
+    conda activate trellis2
     python scripts/run_step.py --step mesh
 
     # 物理プロパティ付与（入力ディレクトリを明示）
