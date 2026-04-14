@@ -41,8 +41,9 @@ log "=== Step 2: uv のインストール ==="
 if ! command -v uv &>/dev/null; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
     export PATH="${HOME}/.cargo/bin:${PATH}"
-    # シェルプロファイルに追記
-    echo 'export PATH="${HOME}/.cargo/bin:${PATH}"' >> "${HOME}/.bashrc"
+    # シェルプロファイルに追記（重複を避ける）
+    grep -q 'cargo/bin' "${HOME}/.bashrc" \
+        || echo 'export PATH="${HOME}/.cargo/bin:${PATH}"' >> "${HOME}/.bashrc"
 fi
 uv --version
 
@@ -71,9 +72,10 @@ log "=== Step 6: OSMesa (headless rendering) 確認 ==="
 python -c "import pyrender; print('pyrender OK')" 2>/dev/null \
     || log "WARNING: pyrender のインポートに失敗 — OSMesa が未設定の可能性があります"
 
-# headless 環境変数
+# headless 環境変数（重複を避ける）
 export PYOPENGL_PLATFORM=osmesa
-echo 'export PYOPENGL_PLATFORM=osmesa' >> "${HOME}/.bashrc"
+grep -q 'PYOPENGL_PLATFORM' "${HOME}/.bashrc" \
+    || echo 'export PYOPENGL_PLATFORM=osmesa' >> "${HOME}/.bashrc"
 
 # ---- 7. モデル保存ディレクトリ作成 ----
 log "=== Step 7: モデル保存ディレクトリ作成 ==="
@@ -81,34 +83,22 @@ mkdir -p "${MODELS_DIR}"
 log "モデルダウンロード先: ${MODELS_DIR}"
 
 # ---- 8. huggingface-cli ログイン確認 ----
+# AL3DG_SKIP_MODEL_DOWNLOAD=1 の場合はスキップ（共有ドライブからのオフライン構築時）
 log "=== Step 8: Hugging Face 認証確認 ==="
-if ! huggingface-cli whoami &>/dev/null; then
+if [ "${AL3DG_SKIP_MODEL_DOWNLOAD:-0}" = "1" ]; then
+    log "  AL3DG_SKIP_MODEL_DOWNLOAD=1: HuggingFace ログイン確認をスキップします"
+    log "  （setup_from_share.sh 経由のオフラインセットアップ）"
+elif ! huggingface-cli whoami &>/dev/null; then
     log "WARNING: Hugging Face にログインしていません"
     log "  モデルダウンロード前に 'huggingface-cli login' を実行してください"
+    log "  オフライン環境の場合は AL3DG_SKIP_MODEL_DOWNLOAD=1 を設定してください"
 fi
 
-# ---- 9. vLLM サーバー起動スクリプト生成 ----
-log "=== Step 9: vLLM 起動スクリプト生成 ==="
-cat > "${SCRIPT_DIR}/start_vllm_server.sh" << 'EOF'
-#!/usr/bin/env bash
-# Qwen3-VL-32B vLLM サーバーを起動する
-# DGX Spark では ~65GB (BF16) を使用
-set -euo pipefail
-
-MODEL="${HOME}/models/Qwen3-VL-32B-Instruct"
-if [ ! -d "$MODEL" ]; then
-    MODEL="Qwen/Qwen3-VL-32B-Instruct"
-fi
-
-exec vllm serve "$MODEL" \
-    --dtype bfloat16 \
-    --max-model-len 8192 \
-    --host 0.0.0.0 \
-    --port 8001 \
-    --trust-remote-code
-EOF
+# ---- 9. vLLM サーバー起動スクリプト確認 ----
+log "=== Step 9: vLLM 起動スクリプト確認 ==="
 chmod +x "${SCRIPT_DIR}/start_vllm_server.sh"
 log "vLLM 起動スクリプト: scripts/start_vllm_server.sh"
+log "  起動方法: bash scripts/start_vllm_server.sh"
 
 # ---- 10. TRELLIS.2 コードのセットアップ ----
 # TRELLIS.2 は pip 配布なし。GitHub repo を clone して付属の setup.sh でインストール。

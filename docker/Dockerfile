@@ -39,12 +39,11 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # ---- 作業ディレクトリ ----
 WORKDIR /workspace/al3dg
 
-# ---- 依存パッケージのインストール (キャッシュ効率化のため先に) ----
-COPY pyproject.toml ./
-RUN uv pip install --system -e ".[dev]" --no-cache-dir
-
-# ---- プロジェクトソースのコピー ----
+# ---- ソースコードのコピー（editable install に src/ が必要なため先にコピー）----
 COPY . .
+
+# ---- 依存パッケージのインストール ----
+RUN uv pip install --system -e ".[dev]" --no-cache-dir
 
 # ---- モデルディレクトリ ----
 RUN mkdir -p ${MODELS_DIR}

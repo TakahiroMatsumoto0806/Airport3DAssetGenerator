@@ -54,13 +54,25 @@ git clone https://github.com/TakahiroMatsumoto0806/Airport3DAssetGenerator.git
 cd Airport3DAssetGenerator/al3dg
 
 # ~/models/ にモデルを用意（Method A or B で取得）
-# イメージをビルドしてパイプライン実行
+
+# イメージをビルド
 docker compose build
+
+# パイプライン実行（vLLM はコンテナ内の run_pipeline.py が自動起動・停止）
 docker compose run --rm al3dg python scripts/run_pipeline.py
+
+# 個別ステップの実行例
+docker compose run --rm al3dg python scripts/run_step.py --step mesh_qa
 ```
 
 > **前提**: NVIDIA Container Toolkit インストール済み
-> (`sudo apt install nvidia-container-toolkit`)
+> ```bash
+> sudo apt install nvidia-container-toolkit
+> sudo systemctl restart docker
+> ```
+
+> **注意**: `docker compose up` はデフォルトで `--help` を表示するだけです。
+> 実際のパイプライン実行には `docker compose run --rm al3dg python scripts/run_pipeline.py` を使用してください。
 
 ---
 

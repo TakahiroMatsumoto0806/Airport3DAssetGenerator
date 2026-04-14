@@ -96,10 +96,15 @@ for model in "${MODELS[@]}"; do
     info "  コピー中: ${model} (${src_size})"
 
     if ! $DRY_RUN; then
-        rsync -a --info=progress2 "${src}/" "${dst}/"
+        if command -v rsync &>/dev/null; then
+            rsync -a --info=progress2 "${src}/" "${dst}/"
+        else
+            warn "  rsync が見つかりません。cp -r でコピーします（進捗表示なし）"
+            cp -r "${src}/." "${dst}/"
+        fi
         info "  完了: ${dst}"
     else
-        dry "rsync -a ${src}/ ${dst}/"
+        dry "rsync (or cp -r) ${src}/ ${dst}/"
     fi
 done
 
