@@ -57,10 +57,13 @@
 ## DGX Spark 制約
 
 - ハードウェア：Grace Blackwell GB10、128GB 統合メモリ、Ubuntu Linux
+- **Step 3（3D 生成）は本プロジェクトの対象範囲外**：別 PC（x86_64 + RTX 5090）で別プロジェクトとして実施する。
+  本リポジトリでは 3D 生成の手順・フローを記述しない（古い記述は混乱を招くため削除ポリシー）。
+  生成された GLB は `outputs/meshes_raw/` に配置された状態から QA 以降を実行する。
 - モデル同時ロード禁止：逐次ロード戦略を厳守
-  - Step1（VLM）→ Step2（FLUX.1 ロード、VLM アンロード）→ QA-1（VLM 再ロード、FLUX.1 アンロード）→ Step3（TRELLIS.2 ロード、VLM アンロード）→ QA-2（VLM 再ロード）
+  - Step1（VLM）→ Step2（FLUX.1 ロード、VLM アンロード）→ QA-1（VLM 再ロード、FLUX.1 アンロード）→ QA-2（VLM で 3D メッシュ検品）
   - モデル切り替え時は `del model; torch.cuda.empty_cache()` を必ず実行
-- ピークメモリ 128GB を超えないこと（TRELLIS.2 ≈ 24GB、Qwen3-VL-32B ≈ 65GB、FLUX.1 ≈ 12GB）
+- ピーク GPU メモリ 128GB を超えないこと（Qwen3-VL-32B 実使用 ≈ 100GB、FLUX.1 ≈ 12GB）
 - Qwen3-VL-32B は vLLM サーバーとして起動：`vllm serve Qwen/Qwen3-VL-32B --dtype bfloat16`
 - モデルダウンロード先：`~/models/`
 

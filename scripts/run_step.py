@@ -9,10 +9,6 @@ T-6.2: 個別ステップ実行スクリプト
     # プロンプト生成のみ
     python scripts/run_step.py --step prompt
 
-    # メッシュ生成 (TRELLIS.2 conda 環境で実行)
-    conda activate trellis2
-    python scripts/run_step.py --step mesh
-
     # 物理プロパティ付与（入力ディレクトリを明示）
     python scripts/run_step.py --step physics --input outputs/meshes_approved
 
@@ -20,7 +16,7 @@ T-6.2: 個別ステップ実行スクリプト
     prompt       T-1.2: プロンプト生成
     image        T-2.1: 画像生成 (FLUX.1-schnell)
     image_qa     T-2.2: 画像 QA (Qwen3-VL-32B)
-    mesh         T-3.1: 3D メッシュ生成 (TRELLIS.2)
+    mesh         T-3.1: 3D メッシュ生成  ※ 本プロジェクト対象外（別 PC で実施）
     mesh_qa      T-3.2: メッシュ QA (trimesh)
     mesh_vlm_qa  T-3.3: VLM マルチビュー QA
     physics      T-4.1: 物理プロパティ付与 (CoACD)

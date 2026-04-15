@@ -19,7 +19,7 @@ models:
 ```
 
 **サーバー起動**: `bash scripts/start_vllm_server.sh`
-- `--gpu-memory-utilization 0.90`（DGX Spark 128GBで必須: モデル重量~65GBのため0.55では起動不可）
+- `--gpu-memory-utilization 0.90`（DGX Spark 128GB で必須: モデル重量 ~65GB + KV キャッシュ + CUDA グラフで実使用は ~100GB となるため 0.55 では起動不可）
 - `--max-model-len 8192`
 - `--dtype bfloat16`
 

@@ -45,7 +45,7 @@ from loguru import logger
 REQUIRED_GB = {
     "FLUX.1-schnell": 20.0,    # BF16 ~12GB + ロード中 CPU ステージング
     "TRELLIS.2-4B":   35.0,    # BF16 ~24GB + ロード中バッファ
-    "Qwen3-VL-32B":   80.0,    # BF16 ~65GB + vLLM 内部バッファ
+    "Qwen3-VL-32B":  110.0,    # 実使用 ~100GB（モデル重量 ~65GB + KV キャッシュ + CUDA グラフ）
     "OpenCLIP":        5.0,    # BF16 ~2GB  + 余裕
 }
 

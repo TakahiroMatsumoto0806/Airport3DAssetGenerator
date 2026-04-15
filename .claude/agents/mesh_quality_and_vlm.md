@@ -10,7 +10,6 @@ Open3D + trimesh を使ったルールベースメッシュ品質チェック（
 
 ### T-3.2 メッシュ品質チェック
 - `src/mesh_qa.py`
-- `src/utils/mesh_repair.py`
 - `tests/test_mesh_qa.py`
 
 ### T-3.3 VLM マルチビュー 3D 検品
@@ -55,9 +54,6 @@ class MeshQA:
 - 修復前後のチェック結果を返す
 
 `check_batch`：合格/不合格/修復済みをレポート、結果 JSON 保存
-
-### src/utils/mesh_repair.py
-- メッシュ修復ユーティリティ（`mesh_qa.py` から使用）
 
 ### src/mesh_vlm_qa.py
 

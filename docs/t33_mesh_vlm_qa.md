@@ -130,8 +130,9 @@ curl http://localhost:8001/v1/models | python -m json.tool
 
 ### 2-3. メモリ使用量
 
-Qwen3-VL-32B-Instruct (BF16) は約 **65 GB** を使用。
-T-3.3 実行中は TRELLIS.2 および FLUX.1 を**アンロードしておくこと**（逐次ロード戦略）。
+Qwen3-VL-32B-Instruct (vLLM) は GPU メモリを約 **100 GB** 使用する（モデル重量 ~65GB + KV キャッシュ + CUDA グラフ）。
+T-3.3 実行中は FLUX.1 を**アンロードしておくこと**（逐次ロード戦略）。
+※ TRELLIS.2 は別 PC（x86_64 + RTX 5090）で実行するため、このホストには存在しない。
 
 ---
 
@@ -306,10 +307,11 @@ bash scripts/start_vllm_server.sh 2>&1 | tee vllm.log
 
 ### メモリ不足 (`CUDA out of memory`)
 
-**原因**: vLLM（Qwen3-VL-32B, ~65GB）と TRELLIS.2（~24GB）が同時にロードされている。
+**原因**: vLLM（Qwen3-VL-32B, ~100GB）と FLUX.1（~12GB）が同時にロードされている。
 
-**対処**: TRELLIS.2 の `MeshGenerator.unload()` を呼んでから vLLM サーバーを起動する。
+**対処**: FLUX.1 側で `ImageGenerator.unload()` を呼んでから vLLM サーバーを起動する。
 パイプライン全体での逐次ロード戦略を守ること（`CLAUDE.md` 参照）。
+※ TRELLIS.2 は別 PC（x86_64 + RTX 5090）で実行するため、DGX Spark 上では同居しない。
 
 ---
 

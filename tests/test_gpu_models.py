@@ -3,28 +3,22 @@ T-0.3: GPU 動作確認テスト
 
 各モデルが正常に推論できることを確認する。
 
-実行方法（DGX Spark — aarch64）:
-    # FLUX.1 + Qwen3 のみ（DGX Spark 標準）
+実行方法:
+    # FLUX.1 + Qwen3 のみ
     python tests/test_gpu_models.py
     python tests/test_gpu_models.py --models flux qwen
 
     # vLLM サーバーを自動起動してテスト（Qwen）
     python tests/test_gpu_models.py --models qwen --start-vllm
 
-実行方法（x86_64 別 PC — TRELLIS.2 専用）:
-    conda activate trellis2
-    python tests/test_gpu_models.py --models trellis
-
-確認内容（DGX Spark）:
+確認内容:
     - FLUX.1-schnell で 1 枚画像生成（~12GB 使用確認）
-    - Qwen3-VL-32B-Instruct でテキスト生成・画像理解（~65GB 使用確認, vLLM 経由）
+    - Qwen3-VL-32B-Instruct でテキスト生成・画像理解（実 GPU 使用量 ~100GB, vLLM 経由）
     - 各ステップで GPU メモリ解放を確認
 
-確認内容（x86_64 別 PC）:
-    - TRELLIS.2-4B で 1 つの 3D モデル生成（~24GB 使用確認）
-
 注意:
-    - TRELLIS.2 は x86_64 + RTX 5090 専用。DGX Spark (aarch64) では動作しない
+    - 3D 生成（Step 3）は本プロジェクトの対象範囲外（別 PC で実施）のため、
+      このテストは 3D 生成モデルを対象としない。
     - Qwen テストは vLLM サーバー (http://localhost:8001) が起動済みであること
       または --start-vllm フラグを使用すること
 """
@@ -162,93 +156,8 @@ def test_flux() -> dict:
 
 
 # ============================================================
-# テスト 2: TRELLIS.2-4B（x86_64 別 PC 専用）
-# ============================================================
-
-def test_trellis() -> dict:
-    """
-    TRELLIS.2-4B で 1 つの 3D モデルを生成し、メモリ使用量を確認する。
-
-    !! DGX Spark (aarch64) では実行不可 !!
-    x86_64 + RTX 5090 の別 PC で以下のように実行する:
-        conda activate trellis2
-        python tests/test_gpu_models.py --models trellis
-    """
-    logger.info("=" * 60)
-    logger.info("TEST 2: TRELLIS.2-4B 3D 生成（x86_64 別 PC 専用）")
-    logger.info("=" * 60)
-
-    result = {"name": "TRELLIS.2-4B", "passed": False, "peak_gb": 0.0, "error": None}
-
-    log_memory("TRELLIS ロード前")
-
-    gen = None
-    try:
-        # MeshGenerator 経由でテスト（本番コードと同じパスを通す）
-        # trellis2 パッケージは conda 環境 "trellis2" 経由でインストール済みであること:
-        #   cd ~/trellis2
-        #   . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel
-        from src.mesh_generator import MeshGenerator
-        from PIL import Image
-
-        model_path = _resolve("TRELLIS.2-4B", "microsoft/TRELLIS.2-4B")
-        logger.info(f"モデルパス: {model_path}")
-
-        gen = MeshGenerator(model_path)
-
-        mem_loaded = log_memory("TRELLIS ロード後")
-
-        # テスト用の白背景ダミー画像（グレーの直方体）
-        with tempfile.TemporaryDirectory() as tmpdir:
-            img_path = Path(tmpdir) / "test_input.png"
-            Image.new("RGB", (512, 512), color=(200, 200, 200)).save(str(img_path))
-
-            glb_path = Path(tmpdir) / "test_output.glb"
-
-            logger.info("3D 生成中 (seed=42) ...")
-            gen.generate_single(str(img_path), seed=42, output_path=str(glb_path))
-
-            mem_peak = log_memory("TRELLIS 生成後")
-            result["peak_gb"] = mem_peak
-
-            assert glb_path.exists(), "GLB ファイルが生成されなかった"
-            assert glb_path.stat().st_size > 0, "GLB ファイルサイズが 0"
-
-            import trimesh
-            loaded_mesh = trimesh.load(str(glb_path))
-            assert loaded_mesh is not None, "trimesh でメッシュを読み込めない"
-            logger.info(
-                f"  メッシュ頂点数: {len(loaded_mesh.vertices) if hasattr(loaded_mesh, 'vertices') else 'N/A'}"
-            )
-
-        logger.info(f"✓ TRELLIS.2-4B: 生成成功 (peak={mem_peak:.1f}GB)")
-        result["passed"] = True
-
-    except ImportError as e:
-        msg = (
-            f"trellis2 パッケージが見つかりません: {e}\n"
-            "  このテストは x86_64 別 PC でのみ動作します。\n"
-            "  conda 環境 'trellis2' がインストールされているか確認してください:\n"
-            "    cd ~/trellis2\n"
-            "    . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel\n"
-            "  その後 conda activate trellis2 でこのスクリプトを実行してください。"
-        )
-        logger.error(msg)
-        result["error"] = str(e)
-    except Exception as e:
-        logger.error(f"✗ TRELLIS.2-4B: {e}")
-        result["error"] = str(e)
-    finally:
-        if gen is not None:
-            gen.unload()
-        mem_after = log_memory("TRELLIS アンロード後")
-        logger.info(f"  解放量: {result['peak_gb'] - mem_after:.1f} GB")
-
-    return result
-
-
-# ============================================================
-# テスト 3: Qwen3-VL-32B-Instruct (vLLM サーバー経由)
+# テスト 2: Qwen3-VL-32B-Instruct (vLLM サーバー経由)
+# ※ 3D 生成（Step 3）は本プロジェクトの対象範囲外のためテスト対象外。
 # ============================================================
 
 def _start_vllm_server() -> subprocess.Popen:
@@ -429,7 +338,7 @@ def main():
     parser.add_argument(
         "--models",
         nargs="+",
-        choices=["flux", "trellis", "qwen", "all"],
+        choices=["flux", "qwen", "all"],
         default=["all"],
         help="テスト対象モデル (デフォルト: all)",
     )
@@ -456,9 +365,6 @@ def main():
     # 逐次ロード戦略：各モデルのテスト後に必ずアンロードしてから次へ
     if "flux" in targets:
         results.append(test_flux())
-
-    if "trellis" in targets:
-        results.append(test_trellis())
 
     if "qwen" in targets:
         results.append(test_qwen(start_vllm=args.start_vllm))

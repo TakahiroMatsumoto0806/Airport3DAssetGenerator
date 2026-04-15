@@ -1,34 +1,13 @@
 """
-T-3.1: 3D モデル生成エンジン
+T-3.1: 3D モデル生成エンジン（※ 本プロジェクトの対象範囲外）
 
-TRELLIS.2-4B (microsoft/TRELLIS.2-4B) を使った Image-to-3D 生成。
+3D 生成（Step 3）は別 PC・別プロジェクトで実施するため、本モジュールは
+本プロジェクトのセットアップ・実行フローからは呼び出されません。
+コードは過去の実装経緯の記録・他環境との互換性のために残置しています。
 
-TRELLIS.2 公式 API:
-  import sys; sys.path.insert(0, '~/trellis2')
-  from trellis2.pipelines import Trellis2ImageTo3DPipeline
-
-  pipeline = Trellis2ImageTo3DPipeline.from_pretrained("~/models/TRELLIS.2-4B")
-  pipeline.cuda()
-  results = pipeline.run(image, seed=1)   # List[MeshWithVoxel]
-  mesh = results[0]
-  # mesh.vertices, mesh.faces, mesh.attrs (voxel PBR), mesh.coords
-
-実行環境: x86_64 + RTX 5090（別 PC）専用。DGX Spark (aarch64) では動作しない。
-
-GLB エクスポート実装:
-  - o_voxel (TRELLIS.2 公式) を使わず scipy cKDTree 最近傍で頂点色を補間して trimesh で GLB 出力
-    (o_voxel の trilinear dense-volume 実装は 0-contamination バグあり → cKDTree に置換済み)
-  - cKDTree: occupied voxel のみで KD 木を構築し、各頂点に最近傍 voxel の属性を割り当てる
-
-使用例:
-    gen = MeshGenerator("~/models/TRELLIS.2-4B")
-    glb_path = gen.generate_single("outputs/images/000000_xxx.png", seed=42)
-
-    results = gen.generate_batch(
-        image_dir="outputs/images",
-        output_dir="outputs/meshes_raw",
-    )
-    gen.unload()
+GLB エクスポート実装メモ（残置コード側の補足）:
+  - scipy cKDTree で occupied voxel のみから最近傍補間して頂点属性を割り当てる。
+  - 従来の dense-volume trilinear 実装にあった 0-contamination を回避するための経緯。
 """
 
 import gc

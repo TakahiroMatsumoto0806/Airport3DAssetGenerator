@@ -100,16 +100,12 @@ chmod +x "${SCRIPT_DIR}/start_vllm_server.sh"
 log "vLLM 起動スクリプト: scripts/start_vllm_server.sh"
 log "  起動方法: bash scripts/start_vllm_server.sh"
 
-# ---- 10. TRELLIS.2 について ----
-# TRELLIS.2 は DGX Spark (aarch64) では動作しない。
-# x86_64 + RTX 5090 の別 PC で以下のようにセットアップすること:
-#   git clone --depth 1 https://github.com/microsoft/TRELLIS.2 ~/trellis2
-#   cd ~/trellis2
-#   . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel
-#   huggingface-cli download microsoft/TRELLIS.2-4B --local-dir ~/models/TRELLIS.2-4B
-log "=== Step 10: TRELLIS.2 ==="
-log "  ※ TRELLIS.2 は DGX Spark(aarch64) では動作しません。"
-log "  ※ x86_64 別 PC でのセットアップ手順は README.md の「TRELLIS.2 専用 PC」セクションを参照してください。"
+# ---- 10. 3D 生成 (Step 3) について ----
+# Step 3 (画像 → 3D メッシュ生成) は本プロジェクトの対象範囲外。
+# 別 PC・別プロジェクトで実施し、生成された GLB を outputs/meshes_raw/ に配置すること。
+log "=== Step 10: 3D 生成（Step 3）について ==="
+log "  ※ 3D 生成（Step 3）は本プロジェクトの対象範囲外です（別 PC で実施）。"
+log "  ※ 生成された GLB を outputs/meshes_raw/ に配置した状態から後続ステップを実行してください。"
 
 # ---- 完了 ----
 log ""
@@ -124,5 +120,5 @@ else
     log "  2. python tests/test_gpu_models.py     # GPU 動作確認 (T-0.3)"
 fi
 log ""
-log "TRELLIS.2（3D 生成）は x86_64 別 PC で実行してください。"
-log "  → README.md の「TRELLIS.2 専用 PC」セクションを参照"
+log "3D 生成（Step 3）は本プロジェクトの対象範囲外です。"
+log "  → 別 PC で生成された GLB を outputs/meshes_raw/ に配置してください。"

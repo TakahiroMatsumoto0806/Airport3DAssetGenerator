@@ -55,7 +55,7 @@ def start_vllm_server(script_path: str = "scripts/start_vllm_server.sh", max_wai
     Args:
         script_path: vLLM起動スクリプトのパス
         max_wait: 最大待機時間（秒、デフォルト: 900秒 = 15分）
-                  Qwen3-VL-32B (~65GB) の起動には 600〜700秒かかることがある。
+                  Qwen3-VL-32B (実使用 ~100GB) の起動には 600〜700秒かかることがある。
     """
     logger.info(f"vLLM サーバーを起動中（最大待機時間: {max_wait}秒）...")
     try:
@@ -119,7 +119,8 @@ def stop_vllm_server() -> bool:
     from src.utils.memory_guard import wait_until_free_gb
 
     # vLLM 停止後に要求する最小空きメモリ (GiB)
-    # vLLM が ~65GB 使用するため、解放後は 60GB 以上空くはず
+    # vLLM が ~100GB (モデル重量 ~65GB + KV キャッシュ + CUDA グラフ) 使用するため、
+    # 解放後は 60GB 以上空くはず
     _VLLM_FREE_THRESHOLD_GB = 60.0
     _VLLM_MEMORY_TIMEOUT_S  = 60.0
 

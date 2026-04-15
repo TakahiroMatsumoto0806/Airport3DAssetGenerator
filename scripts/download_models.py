@@ -1,25 +1,20 @@
 """
 T-0.2: モデルダウンロードスクリプト（DGX Spark 用）
 
-ダウンロード対象（DGX Spark で実行するもの）:
-  1. black-forest-labs/FLUX.1-schnell     (~12GB, BF16)  ※ HFライセンス同意必須
-  2. Qwen/Qwen3-VL-32B-Instruct          (~65GB, BF16)
-  3. laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K (~2GB)
+ダウンロード対象:
+  1. black-forest-labs/FLUX.1-schnell             (~12GB, BF16)  ※ HFライセンス同意必須
+  2. Qwen/Qwen3-VL-32B-Instruct                   (~65GB, BF16)
+  3. laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K    (~2GB)
 
 注意:
-  - TRELLIS.2-4B はこのスクリプトのデフォルト対象外。
-    TRELLIS.2 は x86_64 + RTX 5090 の別 PC でのみ動作する（DGX Spark / aarch64 非対応）。
-    別 PC でダウンロードする場合は --models trellis を明示的に指定すること。
+  - 3D 生成 (Step 3) は本プロジェクトの対象範囲外のため、3D 生成用モデルは扱わない。
   - FLUX.1-schnell は HuggingFace でのライセンス同意が必要。
     事前に https://huggingface.co/black-forest-labs/FLUX.1-schnell にアクセスして
     同意してから huggingface-cli login を実行すること。
 
-使用方法（DGX Spark）:
-  python scripts/download_models.py                          # flux + qwen + clip のみ
-  python scripts/download_models.py --verify-only           # サイズ検証のみ
-
-使用方法（x86_64 別 PC — TRELLIS.2 用）:
-  python scripts/download_models.py --models trellis
+使用方法:
+  python scripts/download_models.py                          # flux + qwen + clip
+  python scripts/download_models.py --verify-only            # サイズ検証のみ
 """
 
 import argparse
@@ -31,7 +26,6 @@ from pathlib import Path
 from loguru import logger
 
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", Path.home() / "models"))
-TRELLIS_CODE_DIR = Path(os.environ.get("TRELLIS_CODE_DIR", Path.home() / "trellis2"))
 
 # ---- モデル定義 ----
 # (hf_repo_id, local_dirname, 期待最小サイズGB, 説明)
@@ -41,12 +35,6 @@ MODELS = {
         "FLUX.1-schnell",
         10.0,
         "FLUX.1-schnell (Text-to-Image, ~12GB BF16) — HFライセンス同意必須",
-    ),
-    "trellis": (
-        "microsoft/TRELLIS.2-4B",
-        "TRELLIS.2-4B",
-        20.0,
-        "TRELLIS.2-4B (Image-to-3D, ~24GB BF16) — モデルウェイトのみ",
     ),
     "qwen": (
         "Qwen/Qwen3-VL-32B-Instruct",
@@ -122,49 +110,6 @@ def verify_model_size(local_dir: Path, min_gb: float, name: str) -> bool:
     return ok
 
 
-def download_trellis_code():
-    """
-    TRELLIS.2 は pip 配布なし。GitHub repo を clone して setup.sh でインストール。
-
-    手順:
-      1. git clone https://github.com/microsoft/TRELLIS.2 ~/trellis2
-      2. cd ~/trellis2
-      3. . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel
-
-    ※ setup.sh は conda 環境 "trellis2" を作成する。
-      本プロジェクトでは conda 環境から trellis2 パッケージを import して使用する。
-    """
-    if TRELLIS_CODE_DIR.exists():
-        logger.info(f"TRELLIS.2 コードは既に存在します: {TRELLIS_CODE_DIR}")
-        # 最新にアップデート
-        run(["git", "-C", str(TRELLIS_CODE_DIR), "pull", "--ff-only"], check=False)
-        return
-
-    logger.info(f"TRELLIS.2 GitHub リポジトリを clone: {TRELLIS_CODE_DIR}")
-    run(
-        [
-            "git",
-            "clone",
-            "--depth",
-            "1",
-            "https://github.com/microsoft/TRELLIS.2",
-            str(TRELLIS_CODE_DIR),
-        ]
-    )
-    logger.warning(
-        "\n"
-        "======================================================================\n"
-        "TRELLIS.2 コードの clone が完了しました。\n"
-        "モデルウェイトとは別に、以下のコマンドでパッケージをインストールしてください:\n"
-        "\n"
-        f"  cd {TRELLIS_CODE_DIR}\n"
-        "  . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel\n"
-        "\n"
-        "setup.sh は conda 環境 'trellis2' を作成します。\n"
-        "======================================================================"
-    )
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="AL3DG モデルダウンロードスクリプト (T-0.2)"
@@ -174,12 +119,7 @@ def main():
         nargs="+",
         choices=list(MODELS.keys()) + ["all"],
         default=["flux", "qwen", "clip"],
-        help=(
-            "ダウンロードするモデルを指定 "
-            "(デフォルト: flux qwen clip — DGX Spark 用)\n"
-            "TRELLIS.2 は x86_64 別 PC でのみ使用。"
-            "別 PC で実行する場合は --models trellis を指定すること"
-        ),
+        help="ダウンロードするモデルを指定 (デフォルト: flux qwen clip)",
     )
     parser.add_argument(
         "--verify-only",
@@ -227,10 +167,6 @@ def main():
                 results[key] = False
                 continue
 
-            # TRELLIS.2 はコードも clone
-            if key == "trellis":
-                download_trellis_code()
-
         results[key] = verify_model_size(local_dir, min_gb, local_dirname)
 
     # ---- サマリ ----
@@ -249,12 +185,6 @@ def main():
         sys.exit(1)
     else:
         logger.info("\n全モデルのダウンロード/検証が完了しました。")
-        if "trellis" in targets and not args.verify_only:
-            logger.warning(
-                f"\nTRELLIS.2 のパッケージインストールを忘れずに:\n"
-                f"  cd {TRELLIS_CODE_DIR} && . ./setup.sh --new-env --basic --flash-attn "
-                f"--nvdiffrast --nvdiffrec --cumesh --o-voxel"
-            )
 
 
 if __name__ == "__main__":

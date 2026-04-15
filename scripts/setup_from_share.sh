@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # AL3DG オフラインセットアップスクリプト
-# 共有ドライブ（/share）からモデルをコピーして環境を構築する。
+# 展開済み share/ ディレクトリからモデルをコピーして環境を構築する。
 # Hugging Face へのアクセス不要。
 #
 # 使い方:
@@ -9,15 +9,18 @@
 #   bash scripts/setup_from_share.sh --dry-run <share_dir>
 #
 # 引数:
-#   share_dir : 共有ドライブのルートパス
-#               例: /mnt/share  /data/al3dg_share
+#   share_dir : al3dg_share.zip を unzip した後の share/ ディレクトリのパス
+#               例: /data/al3dg_share/share  /mnt/usb/share
 #
 # share_dir の期待構造:
 #   <share_dir>/
+#   ├── README.md
 #   ├── models/
 #   │   ├── Qwen3-VL-32B-Instruct/   (~63GB)
 #   │   └── FLUX.1-schnell/          (~54GB)
 #   └── setup_from_share.sh          (このスクリプトのコピー)
+#
+# ZIP 作成・展開の詳細は share/README.md または al3dg/README.md の Method B を参照。
 # =============================================================================
 set -euo pipefail
 

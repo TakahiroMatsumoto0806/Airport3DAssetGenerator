@@ -25,7 +25,7 @@ steps:
   t1_prompt_generation: true
   t2_image_generation: true
   t2_image_qa: true
-  t3_mesh_generation: false   # DGX Spark では false（TRELLIS.2 は x86_64 別 PC で実行）
+  t3_mesh_generation: false   # 本プロジェクトの対象範囲外（別 PC で実施、生成された GLB を meshes_raw_dir に配置）
   t3_mesh_qa: true
   t3_mesh_vlm_qa: true
   t4_physics: true
@@ -51,11 +51,8 @@ models:
     dtype: "bfloat16"
     num_inference_steps: 4
 
-  # TRELLIS.2 (Image-to-3D)
-  trellis:
-    model_dir: "~/models/TRELLIS.2-4B"
-    # TRELLIS.2 は別 conda 環境で実行すること
-    # conda activate trellis && python scripts/run_step.py --step mesh_generation
+  # Image-to-3D（Step 3）は本プロジェクトの対象範囲外（別 PC で実施）。
+  # したがって 3D 生成モデルの設定はここに定義しない。
 
   # Qwen3-VL-32B (VLM/LLM) — vLLM サーバーとして使用
   vlm:

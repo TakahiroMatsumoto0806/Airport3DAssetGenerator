@@ -29,13 +29,9 @@ dependencies = [
     "vllm>=0.6.0",
     "openai>=1.40.0",          # vLLM OpenAI互換クライアント
 
-    # ---- 3D 生成 (TRELLIS.2-4B) ----
-    # !! pip 配布なし。別途インストールが必要 !!
-    #   git clone https://github.com/microsoft/TRELLIS.2 ~/trellis2
-    #   cd ~/trellis2
-    #   . ./setup.sh --new-env --basic --flash-attn --nvdiffrast --nvdiffrec --cumesh --o-voxel
-    # モデルウェイト: huggingface-cli download microsoft/TRELLIS.2-4B
-    # setup.sh が conda 環境 "trellis2" を作成する。
+    # ---- 3D 生成 (Step 3) ----
+    # 本プロジェクトの対象範囲外（別 PC で実施、生成された GLB を受け取る）。
+    # したがって本プロジェクトのセットアップでは 3D 生成用の依存は入れない。
 
     # ---- 3D メッシュ処理 ----
     "trimesh>=4.4.0",
