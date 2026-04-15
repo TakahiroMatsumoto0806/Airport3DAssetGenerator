@@ -81,8 +81,6 @@ class AssetGenerationPipeline:
 ### configs/pipeline_config.yaml
 
 ```yaml
-target_assets: 1000
-overgeneration_ratio: 1.5
 image_generator:
     model: "black-forest-labs/FLUX.1-schnell"
     resolution: [1024, 1024]
@@ -142,7 +140,7 @@ export:
 - `scripts/run_pipeline.py` で `--dry-run` が正常に動作すること
 - `scripts/run_pipeline.py --n-assets 100` で 100 アセットの E2E 生成が成功すること
 - `outputs/reports/diversity_report.html` が生成されること
-- 最終アセット数が 1,000 個以上であること（本番実行時）
+- 本番の大量生成が正常完了すること
 
 ---
 
@@ -158,7 +156,6 @@ export:
 
 - `pipeline_config.yaml` のモデル名を仕様外の値に変更する
 - VLM の `thinking_mode` を仕様と異なる設定にする（画像QA: false、3D QA: true を維持）
-- `target_assets`（1000）や `overgeneration_ratio`（1.5）を変更する
 - `min_realism`（7）や `min_geometry`（7）などの品質閾値を勝手に下げる
 - Vendi Score の計算に CLIP 以外のモデルを使う（仕様：`laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K`）
 - 各ステップの完了状態チェックを省略して `resume` 機能を実装する

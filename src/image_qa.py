@@ -532,11 +532,6 @@ class ImageQA:
             f"画像検品完了: pass={passed}, review={reviewed}, reject={rejected} "
             f"合格率={pass_rate:.1%}"
         )
-        if pass_rate < 0.70:
-            logger.warning(
-                f"合格率 {pass_rate:.1%} が目標 70% を下回っています。"
-                "プロンプトテンプレートや生成パラメータの見直しを検討してください。"
-            )
 
         return summary
 

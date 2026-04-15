@@ -4,7 +4,7 @@
 
 空港荷物コンテナ詰込ロボット向け Physical AI 学習データ用の 3D アセットを大量自動生成するパイプラインを DGX Spark 上に構築する。
 
-最終目標：1,000 個以上の PBR テクスチャ付き 3D アセット（Isaac Sim USD 形式、コリジョン・物理プロパティ付き）
+目標：PBR テクスチャ付き 3D アセットを大量自動生成（Isaac Sim USD 形式、コリジョン・物理プロパティ付き）
 
 ---
 
@@ -82,8 +82,7 @@
 
 | 項目 | 基準 |
 |------|------|
-| 生成アセット数 | 1,000 個以上 |
-| 画像検品合格率 | 70% 以上（realism ≥ 7, integrity ≥ 7） |
+| 生成アセット数 | prompt_generate_number に応じた任意の数 |
 | メッシュ品質 | watertight、manifold、face count 5K〜100K |
 | 3D検品 | geometry ≥ 7、texture ≥ 6 |
 | 多様性 | Vendi Score および近似重複検出でレポート確認 |

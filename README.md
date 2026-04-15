@@ -312,8 +312,7 @@ outputs/
 
 ```yaml
 generation:
-  target_count: 1000          # 目標生成数（最終的に assets_final に残るアセット数）
-  prompt_count_per_category: 10  # カテゴリあたりのプロンプト生成数
+  prompt_generate_number: 100   # 生成するプロンプトの総数（category_weights の比率で割り当て）
 
 models:
   vlm:
@@ -358,7 +357,7 @@ sampling:
 
 ## カテゴリ別合格率の測定
 
-**目的**: 本番の大量生成（1,000件）を開始する前に、カテゴリごとの通過率を小規模サンプルで測定し、
+**目的**: 本番の大量生成を開始する前に、カテゴリごとの通過率を小規模サンプルで測定し、
 `configs/prompt_templates.yaml` の `category_weights` を最適化する。
 
 各カテゴリの画像 QA 通過率にばらつきがあるため、通過率の低いカテゴリの重みを下げて

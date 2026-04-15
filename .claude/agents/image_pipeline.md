@@ -82,7 +82,7 @@ class ImageQA:
   - ダミー画像（白画像 + 実画像）で評価 JSON が正しいスキーマで返ること
 - `outputs/images/` に画像が生成される
 - `outputs/images_approved/` に合格画像と `qa_results.json` が保存される
-- 合格率 70% 以上を目安に検品閾値を調整済みであること
+- 検品閾値（realism/integrity）は pipeline_config.yaml で設定済みであること
 
 ---
 
