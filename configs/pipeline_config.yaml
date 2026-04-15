@@ -14,11 +14,9 @@ project:
 
 # ---- 生成数 ----
 generation:
-  # 目標生成数（最終的に assets_final に残るアセット数）
-  target_count: 1000
-  # 各ステップでの生成倍率（歩留まりを考慮）
+  # 生成するプロンプトの総数（category_weights に従い確率的に各カテゴリへ割り当て）
+  prompt_generate_number: 100
   image_batch_size: 4          # 一度に生成する画像数
-  prompt_count_per_category: 10  # カテゴリあたりのプロンプト数
 
 # ---- ステップ有効化フラグ ----
 steps:

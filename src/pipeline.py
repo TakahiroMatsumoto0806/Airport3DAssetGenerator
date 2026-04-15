@@ -113,7 +113,7 @@ class AL3DGPipeline:
         Path(output_file).parent.mkdir(parents=True, exist_ok=True)
 
         prompts = gen.generate_all(
-            count_per_category=self.cfg.generation.get("prompt_count_per_category", 10)
+            total=self.cfg.generation.get("prompt_generate_number", 100)
         )
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(prompts, f, ensure_ascii=False, indent=2)

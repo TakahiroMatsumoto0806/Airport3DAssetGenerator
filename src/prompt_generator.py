@@ -248,21 +248,18 @@ class PromptGenerator:
     # 公開 API
     # ------------------------------------------------------------------
 
-    def generate_all(self, count_per_category: int = 10) -> list[dict]:
+    def generate_all(self, total: int = 100) -> list[dict]:
         """
-        カテゴリごとに count_per_category 件ずつプロンプトを生成する。
+        指定した総数のプロンプトを生成する。
+        各プロンプトのカテゴリは category_weights に従い確率的に決まる。
 
         Args:
-            count_per_category: カテゴリあたりのプロンプト数
+            total: 生成するプロンプトの総数
 
         Returns:
-            全カテゴリ分のプロンプトリスト
+            プロンプトリスト（長さ = total）
         """
-        cat_keys = list(
-            OmegaConf.to_container(self._categories.categories).keys()
-        )
-        total = len(cat_keys) * count_per_category
-        logger.info(f"generate_all: {len(cat_keys)} カテゴリ × {count_per_category} = {total} 件")
+        logger.info(f"generate_all: 総数 {total} 件（category_weights 比率で割り当て）")
         return self.generate_combinatorial(n=total)
 
     def generate_uniform_per_category(self, n_per_cat: int) -> list[dict]:
@@ -786,7 +783,7 @@ class PromptGenerator:
 
     def generate_batch(
         self,
-        count_per_category: int = 14,
+        total: int = 100,
         config_dir: str = "configs",
         prompts_csv_dir: str = "outputs/prompts",
         images_csv_dir: str = "outputs/images",
@@ -802,7 +799,7 @@ class PromptGenerator:
         これにより、ユーザーがプロンプトを微修正して再実行することが可能。
 
         Args:
-            count_per_category: カテゴリあたりのプロンプト数
+            total: 生成するプロンプトの総数
             config_dir: 設定ファイルディレクトリ
             prompts_csv_dir: 出力 CSV ディレクトリ（prompts用）
             images_csv_dir: 出力 CSV ディレクトリ（images用）
@@ -837,8 +834,8 @@ class PromptGenerator:
                 logger.info(f"画像生成プロンプトCSVから {len(final_prompt_overrides)} 件の修正を読み込みました")
 
         # ステップ2: ベースプロンプト生成
-        logger.info(f"ステップ1: ベースプロンプト生成（{count_per_category} per category）")
-        base_prompts = self.generate_all(count_per_category=count_per_category)
+        logger.info(f"ステップ1: ベースプロンプト生成（総数: {total} 件）")
+        base_prompts = self.generate_all(total=total)
         logger.info(f"  生成完了: {len(base_prompts)} 件")
 
         # ステップ3: VLM リファイン（修正がない場合）

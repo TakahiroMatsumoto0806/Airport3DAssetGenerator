@@ -239,7 +239,7 @@ def parse_args() -> argparse.Namespace:
         "--prompt-count",
         type=int,
         default=None,
-        help="カテゴリあたりのプロンプト生成数 (デフォルト: 設定ファイルの値)",
+        help="生成するプロンプトの総数 (デフォルト: 設定ファイルの prompt_generate_number)",
     )
     parser.add_argument(
         "--no-vllm-auto-start",
@@ -274,7 +274,7 @@ def main() -> int:
     # コマンドラインオプションで設定を上書き
     if args.prompt_count is not None:
         logger.info(f"プロンプト生成数を上書き: {args.prompt_count}")
-        cfg.generation.prompt_count_per_category = args.prompt_count
+        cfg.generation.prompt_generate_number = args.prompt_count
 
     # 実行ステップを決定
     vllm_enabled = cfg.get("vllm", {}).get("enabled", True)

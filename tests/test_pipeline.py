@@ -23,8 +23,7 @@ def _make_cfg(tmpdir: str) -> object:
     """テスト用の最小 DictConfig を作成する"""
     raw = {
         "project": {"name": "al3dg_test", "output_dir": tmpdir, "seed": 42},
-        "generation": {"target_count": 10, "image_batch_size": 4,
-                       "prompt_count_per_category": 2},
+        "generation": {"prompt_generate_number": 10, "image_batch_size": 4},
         "steps": {
             "t1_prompt_generation": True,
             "t2_image_generation": True,
