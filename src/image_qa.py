@@ -799,14 +799,23 @@ class ImageQA:
             modal_id = f"modal_img_{idx}"
 
             # 画像サムネイル生成（存在確認）
+            # HTML 出力ディレクトリから画像への相対パスを算出（別 PC でも動作するよう絶対パス禁止）
             img_thumb = ""
-            if Path(image_path).exists():
-                img_thumb = f'<img src="file://{image_path}" class="thumb" onclick="openModal(\'{modal_id}\')" title="Click to expand">'
+            img_abs = Path(image_path).resolve() if image_path else None
+            if img_abs and img_abs.exists():
+                try:
+                    import os as _os
+                    rel_src = _os.path.relpath(img_abs, start=output_path.parent.resolve())
+                except ValueError:
+                    rel_src = str(img_abs)
+                # HTML 内では URL 用にスラッシュ区切りを徹底
+                rel_src = rel_src.replace("\\", "/")
+                img_thumb = f'<img src="{rel_src}" class="thumb" onclick="openModal(\'{modal_id}\')" title="Click to expand">'
                 img_modal = f"""
             <div id="{modal_id}" class="modal">
                 <div class="modal-content">
                     <span class="modal-close" onclick="closeModal('{modal_id}')">&times;</span>
-                    <img src="file://{image_path}" class="img-preview">
+                    <img src="{rel_src}" class="img-preview">
                 </div>
             </div>
 """

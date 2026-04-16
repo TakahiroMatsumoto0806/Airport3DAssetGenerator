@@ -591,19 +591,27 @@ class MeshVLMQA:
 
             # ビュー画像を表示（render_dir から想定されるパスを構築）
             # TRELLIS output では meshes_raw/asset_id.glb → renders/asset_id/view_*.png
+            # HTML 出力位置からの相対パスで埋め込む（他 PC でも動作するよう絶対パス禁止）
+            import os as _os
             render_base_dir = Path("outputs/renders")
             view_htmls = []
             for view_idx in range(4):
                 view_path = render_base_dir / asset_id / f"view_{view_idx}.png"
                 if view_path.exists():
+                    try:
+                        rel_src = _os.path.relpath(
+                            view_path.resolve(), start=output_path.parent.resolve()
+                        ).replace("\\", "/")
+                    except ValueError:
+                        rel_src = str(view_path)
                     view_modal_id = f"modal_view_{idx}_{view_idx}"
-                    view_htmls.append(f'<img src="file://{view_path}" class="thumb" onclick="openModal(\'{view_modal_id}\')">')
+                    view_htmls.append(f'<img src="{rel_src}" class="thumb" onclick="openModal(\'{view_modal_id}\')">')
 
                     view_modal = f"""
             <div id="{view_modal_id}" class="modal">
                 <div class="modal-content">
                     <span class="modal-close" onclick="closeModal('{view_modal_id}')">&times;</span>
-                    <img src="file://{view_path}" style="max-width: 80vw; max-height: 80vh; border-radius: 5px;">
+                    <img src="{rel_src}" style="max-width: 80vw; max-height: 80vh; border-radius: 5px;">
                 </div>
             </div>
 """

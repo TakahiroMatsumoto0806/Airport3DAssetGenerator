@@ -25,7 +25,7 @@ fixed:
   # この指示が「荷物を画面いっぱいに大きく写す」という構図を CLIP に伝える。
   # 変更すると全プロンプトの構図が変わる。例えば "small object" にすると荷物が小さく写り、
   # TRELLIS の再構成品質が低下する。
-  prefix: "single product photo, object centered,"
+  prefix: "single product photo, object centered"
 
   # CLIP に届かせる背景指示（トークン節約のため短く）。
   # "solid white background, no shadows" が TRELLIS に最適な白背景・無影を指示する。

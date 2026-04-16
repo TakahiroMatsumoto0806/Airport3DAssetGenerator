@@ -120,16 +120,29 @@ class AL3DGPipeline:
 
         logger.info(f"  プロンプト生成完了: {len(prompts)} 件 → {output_file}")
 
-        # prompt_review.html 生成（CSV が存在しない場合はスキップ）
+        # prompt_review.html 生成（CSV が無い場合でも JSON とカテゴリ情報のみで出力される）
         try:
             report_dir = Path(self.cfg.paths.get("reports_dir", "outputs/reports"))
             report_dir.mkdir(parents=True, exist_ok=True)
+            images_dir = self.cfg.get("image_generation", {}).get(
+                "output_dir", "outputs/images"
+            )
+            prompts_csv_dir = Path(
+                self.cfg.paths.get("prompts_csv_dir", "outputs/prompts_csv")
+            )
+            images_csv_dir = Path(
+                self.cfg.paths.get("images_csv_dir", "outputs/images_csv")
+            )
             gen.generate_html_report(
+                prompts_json_path=output_file,
+                vlm_input_csv_path=str(prompts_csv_dir / "vlm_input_prompts.csv"),
+                image_gen_csv_path=str(images_csv_dir / "image_generation_prompts.csv"),
+                images_dir=images_dir,
                 output_path=str(report_dir / "prompt_review.html"),
             )
             logger.info(f"  プロンプトレビュー: {report_dir / 'prompt_review.html'}")
         except Exception as e:
-            logger.debug(f"  prompt_review.html 生成スキップ: {e}")
+            logger.warning(f"  prompt_review.html 生成エラー: {e}")
 
         return {"count": len(prompts), "output_file": output_file}
 
@@ -202,6 +215,16 @@ class AL3DGPipeline:
             f"  画像QA完了: 合格={result.get('passed')}, "
             f"不合格={result.get('rejected')}"
         )
+
+        # image_qa_review.html 生成
+        try:
+            report_dir = Path(self.cfg.paths.get("reports_dir", "outputs/reports"))
+            report_dir.mkdir(parents=True, exist_ok=True)
+            qa.generate_html_report(str(report_dir / "image_qa_review.html"))
+            logger.info(f"  画像QAレビュー: {report_dir / 'image_qa_review.html'}")
+        except Exception as e:
+            logger.warning(f"  image_qa_review.html 生成エラー: {e}")
+
         return result
 
     def run_mesh_generation(self, resume: bool = True) -> dict:
@@ -288,6 +311,16 @@ class AL3DGPipeline:
             f"  VLM 3D QA完了: 合格={result.get('passed')}, "
             f"不合格={result.get('failed')}"
         )
+
+        # mesh_vlm_qa_review.html 生成
+        try:
+            report_dir = Path(self.cfg.paths.get("reports_dir", "outputs/reports"))
+            report_dir.mkdir(parents=True, exist_ok=True)
+            qa.generate_html_report(str(report_dir / "mesh_vlm_qa_review.html"))
+            logger.info(f"  3D QAレビュー: {report_dir / 'mesh_vlm_qa_review.html'}")
+        except Exception as e:
+            logger.warning(f"  mesh_vlm_qa_review.html 生成エラー: {e}")
+
         return result
 
     def run_physics(self, resume: bool = True) -> dict:

@@ -238,8 +238,14 @@ class PromptGenerator:
         # 淡色の場合: 輪郭強調（影は禁止のためcast shadow不使用）
         if any(lc in color.lower() for lc in self._light_colors):
             suffix = suffix + ", clearly defined object outline, strong edge contrast against background"
-        # 順序: [prefix] [core] [bg_brief] [suffix_full]
-        return f"{self._fixed_prefix}, {core}, {self._fixed_bg_brief}, {suffix}"
+        # カテゴリ別 CLIP プレフィクス（ハンドル収納・ジッパー閉鎖などの必須指示）
+        clip_prefix = self._category_clip_prefix.get(category, "").strip().rstrip(",").strip()
+        # 順序: [prefix] [clip_prefix] [core] [bg_brief] [suffix_full]
+        parts = [self._fixed_prefix]
+        if clip_prefix:
+            parts.append(clip_prefix)
+        parts.extend([core, self._fixed_bg_brief, suffix])
+        return ", ".join(parts)
 
     def _prompt_hash(self, prompt: str) -> str:
         return hashlib.md5(prompt.encode()).hexdigest()[:12]

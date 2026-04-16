@@ -515,9 +515,10 @@ def analyze_pass_rates(
             "est_total_hours": round(est_h_gen + est_h_qa, 1),
         })
 
+    import datetime as _dt
     report = {
         "metadata": {
-            "run_date": "2026-04-12",
+            "run_date": _dt.date.today().isoformat(),
             "n_per_category": n_current,
             "target_hs_fraction": target_hs_fraction,
             "total_generated": total_generated,
