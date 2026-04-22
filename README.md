@@ -259,7 +259,7 @@ python scripts/run_step.py --step physics
 
 | ステップ名 | 処理内容 |
 |-----------|---------|
-| `prompt` | プロンプト生成（Qwen3-VL-32B リファイン） |
+| `prompt` | プロンプト生成（組合せ生成） |
 | `image` | 画像生成（FLUX.1-schnell） |
 | `image_qa` | 画像検品（Qwen3-VL-32B） |
 | `mesh` | 3D メッシュ生成 — ※ 本プロジェクト対象外（別 PC で実施、スキップ可） |
@@ -368,7 +368,7 @@ sampling:
 python scripts/measure_pass_rates.py --samples 20
 
 # 5 枚/カテゴリで簡易テスト
-python scripts/measure_pass_rates.py --samples 5 --no-llm-refine
+python scripts/measure_pass_rates.py --samples 5
 
 # 既存 QA 結果からレポートのみ再生成
 python scripts/measure_pass_rates.py --skip-pipeline
@@ -397,7 +397,7 @@ scp -r user@dgx-spark:~/Airport3DAssetGenerator/al3dg/outputs/ ~/al3dg_outputs/
 
 | レポート | 内容 |
 |---------|------|
-| `outputs/reports/prompt_review.html` | プロンプト一覧・VLM リファイン入出力・生成画像サムネイル |
+| `outputs/reports/prompt_review.html` | プロンプト一覧・生成画像サムネイル |
 | `outputs/reports/image_qa_review.html` | 画像 QA 検品スコア・合否・サムネイル |
 | `outputs/reports/mesh_vlm_qa_review.html` | 3D 検品マルチビュー画像・スコア・問題点 |
 | `outputs/reports/pass_rate_report.html` | カテゴリ別合格率・推奨 `category_weights` |

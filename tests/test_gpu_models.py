@@ -233,7 +233,7 @@ def test_qwen(start_vllm: bool = False) -> dict:
 
         mem_before = log_memory("テスト開始前")
 
-        # ---- テスト 3a: テキスト生成（プロンプトリファイン相当）----
+        # ---- テスト 3a: テキスト生成（vLLM テキスト応答疎通確認）----
         logger.info("3a: テキスト生成テスト (/no_think)")
         response = client.chat.completions.create(
             model=served_model,
@@ -242,9 +242,7 @@ def test_qwen(start_vllm: bool = False) -> dict:
                     "role": "user",
                     "content": (
                         "/no_think\n"
-                        "Refine the following image generation prompt for FLUX.1-schnell. "
-                        "Keep it concise and return only the refined prompt:\n"
-                        "A black suitcase on white background"
+                        "Describe a black suitcase on a white background in one short sentence."
                     ),
                 }
             ],

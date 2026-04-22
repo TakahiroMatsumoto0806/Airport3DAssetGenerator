@@ -127,15 +127,11 @@ class AL3DGPipeline:
             images_dir = self.cfg.get("image_generation", {}).get(
                 "output_dir", "outputs/images"
             )
-            prompts_csv_dir = Path(
-                self.cfg.paths.get("prompts_csv_dir", "outputs/prompts_csv")
-            )
             images_csv_dir = Path(
                 self.cfg.paths.get("images_csv_dir", "outputs/images_csv")
             )
             gen.generate_html_report(
                 prompts_json_path=output_file,
-                vlm_input_csv_path=str(prompts_csv_dir / "vlm_input_prompts.csv"),
                 image_gen_csv_path=str(images_csv_dir / "image_generation_prompts.csv"),
                 images_dir=images_dir,
                 output_path=str(report_dir / "prompt_review.html"),

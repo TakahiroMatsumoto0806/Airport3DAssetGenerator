@@ -1,6 +1,8 @@
 # VLM設定ファイル仕様
 
-AL3DGパイプラインでVLM（Qwen3-VL-32B-Instruct）を使用するステップは3つある。
+AL3DGパイプラインで VLM（Qwen3-VL-32B-Instruct）を使用するのは画像検品（T-2.2）と
+3D検品（T-3.3）の 2 ステップ。プロンプト生成（T-1.2）は組合せ生成のみで vLLM は使用しない。
+
 各ステップのVLMへの依頼内容と、それを制御する設定ファイルを整理する。
 
 ---
@@ -25,33 +27,10 @@ models:
 
 ---
 
-## T-1.2: プロンプト生成（LLMリファイン）
+## T-1.2: プロンプト生成（組合せ生成のみ）
 
-### 何を依頼するか
-FLUX.1-schnell用の商品画像プロンプトを改善する。
-ベーステンプレートで組み立てたプロンプトをQwen3-VLに渡し、より詳細・効果的な英語プロンプトに書き直させる。
-
-### 設定ファイル: `configs/prompt_templates.yaml`
-
-**システムプロンプト** (`templates.llm_refine_system`):
-```
-You are a professional product photographer and prompt engineer specializing
-in generating high-quality product images with FLUX.1-schnell diffusion model.
-Your task is to refine image generation prompts for airport luggage items.
-Output only the refined prompt, no explanations.
-```
-
-**ユーザープロンプト** (`templates.llm_refine_user`):
-```
-/no_think
-Refine this product image prompt for FLUX.1-schnell.
-Keep it under 120 words. Preserve all factual attributes.
-Ensure it specifies: pure white background, studio lighting,
-product photography angle, photorealistic quality.
-Input prompt: {base_prompt}
-```
-
-**重要**: `/no_think` トークンで思考モードをOFF（高速スクリーニング用）
+プロンプト生成は YAML テンプレートの属性を組み合わせて FLUX.1-schnell に渡す完全形プロンプトを
+直接構築する。vLLM は使用しない（方針: VLM リファインは正式に廃止）。
 
 ### プロンプトの組み立て元
 
@@ -62,12 +41,13 @@ Input prompt: {base_prompt}
 | `fixed.prefix` | 全プロンプト共通のフレーミング指示（CLIP 77トークン制限内に収める） |
 | `fixed.bg_brief` | 背景指示（CLIPに届かせる短い記述） |
 | `fixed.lighting`, `fixed.view`, `fixed.quality` | T5エンコーダ向け詳細指示 |
-| `attributes.type` | 荷物タイプ別の英語記述（carry_on/medium_check_in/large_check_in等サブカテゴリあり） |
+| `attributes.type` | 荷物タイプ別の英語記述（medium_check_in/large_check_in等のサブカテゴリあり） |
 | `attributes.color` | 色バリエーション（neutrals/blues/reds_pinks/greens/browns_golds/others） |
 | `attributes.material` | 材質記述（polycarbonate/nylon/leather等） |
 | `attributes.texture` | テクスチャ記述（smooth/textured/fabric/worn） |
 | `attributes.style` | スタイル（modern/classic/sporty/luxury/casual） |
 | `attributes.condition` | 状態（new/used/worn） |
+| `category_clip_prefix` | ハンドル格納・ジッパー閉鎖等の必須指示をベースプロンプト先頭に付加 |
 
 **サンプリング重み** (`sampling`):
 - `category_weights`: 荷物カテゴリの生成比率（hard_suitcase=0.25が最多）
@@ -78,30 +58,10 @@ Input prompt: {base_prompt}
 - 11カテゴリ: hard_suitcase, soft_suitcase, backpack, duffel_bag, briefcase, cardboard_box, hard_case, golf_bag, ski_bag, stroller, instrument_case
 - 各カテゴリにサイズ範囲（mm）・標準材質・色傾向・物理プロパティのデフォルト値を定義
 
-### VLM プロンプト出力の確認・微修正（CSV 編集）
+### 最終プロンプトの確認・微修正（任意: CSV 編集）
 
-T-1.2 実行後、以下 2 つの CSV ファイルが生成され、ユーザーが微修正して再実行できます。
-
-| CSV ファイル | 用途 | 編集対象カラム |
-|-----------|------|------------|
-| `outputs/prompts/vlm_input_prompts.csv` | VLM 入力プロンプトの確認・微修正 | `vlm_input_prompt` |
-| `outputs/images/image_generation_prompts.csv` | FLUX.1 最終プロンプトの確認・微修正 | `final_prompt_for_flux` |
-
-**再実行フロー:**
-
-```bash
-# 1. T-1.2 実行
-python scripts/run_pipeline.py --steps prompt
-
-# 2. 生成された CSV を確認・編集
-# outputs/prompts/vlm_input_prompts.csv の vlm_input_prompt カラムを編集
-
-# 3. T-1.2 を再実行（CSV の修正値を使用）
-python scripts/run_pipeline.py --steps prompt
-
-# 4. 修正後のプロンプトで画像生成・以降のパイプラインを実行
-python scripts/run_pipeline.py --steps image image_qa
-```
+T-2.1 の画像生成前にユーザーが `outputs/images/image_generation_prompts.csv` の
+`final_prompt_for_flux` カラムを編集してプロンプトを差し替えることができる（CSV が存在する場合のみ）。
 
 ---
 
@@ -290,7 +250,7 @@ mesh_vlm_qa:
 
 | ステップ | HTML レポート | 表示内容 |
 |---------|------------|---------|
-| T-1.2 | `outputs/reports/prompt_review.html` | VLM 入力プロンプト、VLM 出力（最終プロンプト）、生成画像サムネイル |
+| T-1.2 | `outputs/reports/prompt_review.html` | プロンプト（組合せ生成）、生成画像サムネイル |
 | T-2.2 | `outputs/reports/image_qa_review.html` | 検品プロンプト、Realism/Integrity スコア、各条件チェック、合格判定、画像サムネイル |
 | T-3.3 | `outputs/reports/mesh_vlm_qa_review.html` | 検品プロンプト、Geometry/Texture/Consistency スコア、4 ビュー画像、問題点リスト、合格判定 |
 
@@ -319,6 +279,6 @@ open outputs/reports/mesh_vlm_qa_review.html
 
 | ステップ | Thinkingモード | 入力 | 出力 | レポート |
 |---------|--------------|------|------|---------|
-| T-1.2 プロンプトリファイン | `/no_think`（高速） | テキストプロンプト | 改善済みプロンプト | prompt_review.html |
+| T-1.2 プロンプト生成 | — (vLLM 不使用) | 属性テンプレート | 組合せ生成プロンプト | prompt_review.html |
 | T-2.2 画像QA | `/no_think`（高速） | 画像1枚 | realism/integrity スコア + pass/fail | image_qa_review.html |
 | T-3.3 VLM 3D検品 | `/think`（精度重視） | 4方向レンダリング画像 | geometry/texture/consistency スコア + pass/fail | mesh_vlm_qa_review.html |

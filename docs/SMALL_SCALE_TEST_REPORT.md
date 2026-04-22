@@ -41,8 +41,7 @@ python scripts/run_pipeline.py --prompt-count 5     # 5個（60個生成）
 |------|------|
 | 実行時間 | 約1秒 |
 | 生成プロンプト数 | 12個（12カテゴリ × 1） |
-| VLM入力CSV生成 | ✅ vlm_input_prompts.csv |
-| 画像生成用CSV生成 | ✅ image_generation_prompts.csv |
+| 画像生成用CSV（任意編集用） | image_generation_prompts.csv を編集して T-2.1 に反映可能 |
 | HTML報告生成 | ✅ prompt_review.html（20KB） |
 | **修正1検証** | ✅ **generate_html_report() 呼び出しが正常に機能** |
 
@@ -77,11 +76,10 @@ HTML レポート生成完了: outputs/reports/prompt_review.html
 
 ```
 outputs/prompts/
-├── prompts.json                    (11KB) — 生成されたプロンプト12個
-└── vlm_input_prompts.csv           — VLM入力プロンプト（編集可）
+└── prompts.json                    (11KB) — 生成されたプロンプト12個
 
 outputs/images/
-└── image_generation_prompts.csv    — 画像生成用プロンプト（編集可）
+└── image_generation_prompts.csv    — 画像生成用プロンプト（任意で編集可）
 
 outputs/reports/
 └── prompt_review.html              (20KB) — HTML レビューレポート ✅
@@ -112,9 +110,9 @@ outputs/images/
 
 **確認内容:**
 - prompts_json_path が正しく渡されている
-- vlm_input_csv_path が正しく指定されている
 - image_gen_csv_path が正しく指定されている
 - output_path が正しく指定されている
+（VLM リファイン廃止方針に伴い vlm_input_csv_path は削除済み）
 
 ### ✅ 追加修正: generate_html_report() の柔軟性向上
 

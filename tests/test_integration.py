@@ -345,7 +345,6 @@ class TestStepDataFlowExtended(unittest.TestCase):
                 "material": "polycarbonate",
                 "color": "glossy_black",
                 "prompt_id": "abc123",
-                "refined": False,
             },
             {
                 "prompt": "close-up product photo, soft duffel bag, navy blue, white background",
@@ -354,8 +353,6 @@ class TestStepDataFlowExtended(unittest.TestCase):
                 "material": "nylon",
                 "color": "navy_blue",
                 "prompt_id": "def456",
-                "refined": True,
-                "original_prompt": "original text here",
             },
         ]
 

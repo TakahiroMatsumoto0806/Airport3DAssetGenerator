@@ -226,12 +226,6 @@ def parse_args() -> argparse.Namespace:
         help="パイプライン実行をスキップし、既存 QA 結果からレポートのみ生成する",
     )
     parser.add_argument(
-        "--no-llm-refine",
-        action="store_true",
-        default=False,
-        help="vLLM によるプロンプトリファインをスキップする（高速テスト用）",
-    )
-    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -277,15 +271,8 @@ def main() -> int:
     # -----------------------------------------------------------------------
     logger.info("[Step 1/3] プロンプト生成（均等サンプリング）")
 
-    if not args.no_vllm_auto_start and not args.no_llm_refine:
-        # vLLM が必要（LLM リファイン使用時）
-        if not _check_vllm(vllm_base_url):
-            logger.info("vLLM サーバーを起動します...")
-            if not _start_vllm():
-                logger.error("vLLM の起動に失敗しました。--no-llm-refine を指定してください。")
-                return 1
-    elif not args.no_vllm_auto_start and args.no_llm_refine:
-        # vLLM 不要（リファインなし）→ 起動中なら停止してメモリ解放
+    # プロンプト生成は組合せ生成のみで vLLM 不要 → 起動中なら停止してメモリ解放
+    if not args.no_vllm_auto_start:
         _stop_vllm()
 
     prompts_path = Path(args.prompts_output)
@@ -295,38 +282,10 @@ def main() -> int:
         logger.error("プロンプト生成に失敗しました")
         return 1
 
-    # LLM リファイン（vLLM を使ってプロンプトを改善）
-    if not args.no_llm_refine:
-        logger.info("  LLM リファイン実行中...")
-        try:
-            from src.prompt_generator import PromptGenerator
-            gen = PromptGenerator(cfg_dir)
-            vlm_cfg = cfg.get("models", {}).get("vlm", {})
-            model_name = str(Path(vlm_cfg.get(
-                "model_name", str(Path.home() / "models" / "Qwen3-VL-32B-Instruct")
-            )).expanduser())
-            vllm_base_url_cfg = cfg.get("models", {}).get("vlm", {}).get("base_url", "http://localhost:8001/v1")
-            # vLLM を使って一括リファイン
-            refined_prompts = gen.generate_with_llm_refinement(
-                base_prompts=prompts,
-                model_name=model_name,
-                vllm_base_url=vllm_base_url_cfg,
-            )
-            if refined_prompts:
-                prompts = refined_prompts
-                with open(prompts_path, "w", encoding="utf-8") as f:
-                    json.dump(prompts, f, ensure_ascii=False, indent=2)
-                logger.info(f"  リファイン済みプロンプト保存: {prompts_path}")
-        except Exception as e:
-            logger.warning(f"  LLM リファイン失敗（スキップ）: {e}")
-
     # -----------------------------------------------------------------------
     # Step 2: 画像生成（FLUX.1-schnell）
     # -----------------------------------------------------------------------
     logger.info("[Step 2/3] 画像生成（FLUX.1-schnell）")
-
-    # 画像生成前に vLLM を停止してメモリ解放（auto-start の有無にかかわらず必須）
-    _stop_vllm()
 
     try:
         step_results = _run_pipeline_steps(cfg, steps=["image"], resume=False)

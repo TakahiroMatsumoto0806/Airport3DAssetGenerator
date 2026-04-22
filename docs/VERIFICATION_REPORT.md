@@ -31,10 +31,9 @@ AL3DGパイプラインの4つの改修（T-1.2 プロンプト生成～T-3.3 VL
 # 修正前
 gen.generate_html_report(html_report_path)
 
-# 修正後
+# 修正後（VLM リファイン廃止方針に伴い vlm_input_csv_path は削除）
 gen.generate_html_report(
     prompts_json_path=output_file,
-    vlm_input_csv_path=str(Path("outputs/prompts") / "vlm_input_prompts.csv"),
     image_gen_csv_path=str(Path("outputs/images") / "image_generation_prompts.csv"),
     output_path=html_report_path
 )
@@ -80,7 +79,7 @@ python3 test_fixes_simple.py
 
 | # | テスト項目 | 結果 | 詳細 |
 |---|-----------|------|------|
-| 1 | pipeline.py T-1.2 HTML呼び出し | ✅ 合格 | prompts_json_path, vlm_input_csv_path, image_gen_csv_path, output_path が正しく指定されている |
+| 1 | pipeline.py T-1.2 HTML呼び出し | ✅ 合格 | prompts_json_path, image_gen_csv_path, output_path が正しく指定されている |
 | 2 | PromptGenerator.generate_html_report() シグネチャ | ✅ 合格 | 期待通りの4パラメータを持つ |
 | 3 | image_qa.py evaluate_batch() prompt_sent確認 | ✅ 合格 | ソースコードに "prompt_sent": user_prompt_formatted が確認された |
 | 4 | ImageQA.evaluate_batch() シグネチャ | ✅ 合格 | image_dir, output_json パラメータが確認された |
@@ -98,10 +97,9 @@ python3 test_fixes_simple.py
 | 項目 | 状態 | 詳細 |
 |------|------|------|
 | light_colors YAML統合 | ✅ | configs/prompt_templates.yaml 行37-47 |
-| CSV生成（VLM入力） | ✅ | vlm_input_prompts.csv の生成・編集・再実行対応 |
-| CSV生成（画像生成） | ✅ | image_generation_prompts.csv の生成・編集・再実行対応 |
-| generate_html_report() メソッド | ✅ | 行692-844。VLMプロンプト、出力、生成画像をHTMLで表示 |
-| **pipeline.py 統合** | ✅ | **修正1適用: HTML報告パラメータが正しく指定** |
+| CSV 入力（画像生成プロンプト差替） | ✅ | image_generation_prompts.csv を編集して T-2.1 に反映可能 |
+| generate_html_report() メソッド | ✅ | プロンプトと生成画像サムネイルを HTML で表示 |
+| **pipeline.py 統合** | ✅ | **修正1適用: HTML報告パラメータが正しく指定（VLM リファイン廃止済）** |
 
 ### T-2.2 画像検品 — 実装状況
 

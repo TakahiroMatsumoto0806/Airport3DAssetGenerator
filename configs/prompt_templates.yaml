@@ -366,38 +366,9 @@ templates:
     isolated on {fixed.background}, {fixed.lighting},
     {fixed.view}, {fixed.quality}, no shadows outside object
 
-  # LLM リファイン用ベーステンプレート（Qwen3-VL-32B に渡す）
-  # 組み立て済みプロンプトの重複を除去し 60〜75 語に圧縮しつつ、
-  # 受託手荷物（Checked Baggage）の状態条件を確実に盛り込む。
-  llm_refine_system: >-
-    You are a prompt engineer for FLUX.1-schnell product photography.
-    You specialize in airport CHECKED BAGGAGE imagery for robotics training datasets.
-    Your task: compress image prompts by removing redundant phrases, while ensuring
-    the image will show luggage in proper checked baggage condition.
-    CLIP processes only the first ~77 tokens; concise prompts give CLIP full coverage.
-    Output only the refined prompt. No explanations, no bullet points, no quotes.
-
-  llm_refine_user: >-
-    /no_think
-    Compress and refine the following FLUX.1-schnell prompt for airport checked baggage imagery.
-    Rules:
-    1. Remove duplicate/redundant phrases (keep only ONE shadow instruction,
-       ONE focus instruction, ONE lighting instruction).
-    2. Preserve ALL unique attributes: object type, size, color, material, finish,
-       style, condition, background color, viewpoint, and photo quality.
-    3. CHECKED BAGGAGE SIZE (mandatory — enforce if the described item is too small):
-       a. If the item is a small handbag, clutch, wristlet, mini bag, or purse smaller than cabin baggage:
-          replace with the nearest large checked-baggage equivalent (e.g. "medium hard-shell suitcase").
-       b. Strollers and similar non-bag items must be described as "fully folded, in transport-ready position".
-    4. Target 50-55 words total (a short category prefix will be prepended afterward,
-       aiming for ≤65 words final — fits CLIP 77-token limit).
-    5. Structure your output as: [object description] [surface condition / material detail] [background] [lighting/quality].
-    6. Output the compressed prompt only — one line, no labels.
-    Input: {base_prompt}
-
 # ---- カテゴリ別プロンプト先頭強制フレーズ ----
-# ---- CLIP 先頭保証フレーズ（LLM リファイン後に先頭付加）----
-# LLM リファインの出力（~55語）の「前に」付加する超短縮状態フレーズ。
+# ---- CLIP 先頭保証フレーズ（ベースプロンプト先頭に付加）----
+# 組合せ生成したベースプロンプトの「前に」付加する超短縮状態フレーズ。
 # CLIP の 77 トークン枠の先頭にハンドル格納・バッグ閉鎖指示が必ず届くことを保証する。
 # 短く保つこと（5語以内推奨）。長すぎると他の重要情報が CLIP 枠から押し出される。
 # 未設定カテゴリには付加しない（バッグ以外の形状には telescoping handle がないため）。

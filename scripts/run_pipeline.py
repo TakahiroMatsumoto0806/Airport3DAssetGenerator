@@ -200,8 +200,9 @@ def stop_vllm_server() -> bool:
 
 
 # vLLM が必要なステップ / 不要なステップ
-_STEPS_NEEDING_VLLM = {"prompt", "image_qa", "mesh_vlm_qa"}
-_STEPS_NOT_NEEDING_VLLM = {"image", "mesh", "mesh_qa", "physics", "sim_export"}
+# プロンプト生成は組合せ生成のみ（VLM リファインは廃止）のため vLLM を必要としない。
+_STEPS_NEEDING_VLLM = {"image_qa", "mesh_vlm_qa"}
+_STEPS_NOT_NEEDING_VLLM = {"prompt", "image", "mesh", "mesh_qa", "physics", "sim_export"}
 
 
 def parse_args() -> argparse.Namespace:

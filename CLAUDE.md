@@ -42,7 +42,7 @@
 | パッケージ管理 | uv | 依存解決 |
 | 画像生成 | diffusers + FLUX.1-schnell | Text-to-Image |
 | 3D生成 | TRELLIS.2-4B (Microsoft) | Image-to-3D |
-| VLM/LLM 統一 | vLLM + Qwen3-VL-32B | プロンプト生成・画像検品・3D検品（全タスク共通） |
+| VLM/LLM 統一 | vLLM + Qwen3-VL-32B | 画像検品・3D検品（プロンプト生成は組合せ生成のみで vLLM 不使用） |
 | メッシュ処理 | trimesh, Open3D | 品質チェック・修復 |
 | 凸分解 | CoACD | コリジョンメッシュ生成 |
 | 多様性評価 | open_clip (ViT-L/14) | CLIP埋め込み・Vendi Score |
@@ -61,7 +61,7 @@
   本リポジトリでは 3D 生成の手順・フローを記述しない（古い記述は混乱を招くため削除ポリシー）。
   生成された GLB は `outputs/meshes_raw/` に配置された状態から QA 以降を実行する。
 - モデル同時ロード禁止：逐次ロード戦略を厳守
-  - Step1（VLM）→ Step2（FLUX.1 ロード、VLM アンロード）→ QA-1（VLM 再ロード、FLUX.1 アンロード）→ QA-2（VLM で 3D メッシュ検品）
+  - Step1（プロンプト生成: 組合せ生成のみ、GPU 不使用）→ Step2（FLUX.1 ロード・画像生成・アンロード）→ QA-1（VLM ロードで画像検品）→ QA-2（VLM で 3D メッシュ検品）
   - モデル切り替え時は `del model; torch.cuda.empty_cache()` を必ず実行
 - ピーク GPU メモリ 128GB を超えないこと（Qwen3-VL-32B 実使用 ≈ 100GB、FLUX.1 ≈ 12GB）
 - Qwen3-VL-32B は vLLM サーバーとして起動：`vllm serve Qwen/Qwen3-VL-32B --dtype bfloat16`

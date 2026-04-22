@@ -9,7 +9,6 @@ T-1.2: プロンプト生成エンジン テスト
 追加検証:
   - save() で JSON ファイルが正しく書き出される
   - get_statistics() が正しいスキーマを返す
-  - LLM リファインはモック経由で動作確認（vLLM サーバー不要）
 
 実行方法:
     pytest tests/test_prompt_generator.py -v
@@ -21,7 +20,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 # プロジェクトルートを sys.path に追加
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -162,8 +160,7 @@ class TestPromptGeneratorBasic(unittest.TestCase):
 
     def test_prompt_length_reasonable(self):
         """プロンプト長が適切な範囲であること（20〜900 文字）。
-        A-2/A-3 で受託手荷物状態フレーズ・カテゴリ別状態フレーズが追加されたため、
-        上限を 900 文字に更新（LLM リファイン後は 60-75 語以内に圧縮される）。
+        A-2/A-3 で受託手荷物状態フレーズ・カテゴリ別状態フレーズが追加されたため、上限を 900 文字に設定。
         """
         prompts = self.gen.generate_combinatorial(n=50)
         for i, p in enumerate(prompts):
@@ -297,7 +294,6 @@ class TestPromptGeneratorStatistics(unittest.TestCase):
             "color_distribution",
             "material_distribution",
             "condition_distribution",
-            "refined_count",
         }
         missing = required_keys - set(stats.keys())
         self.assertFalse(missing, f"統計情報に不足キーあり: {missing}")
@@ -309,131 +305,9 @@ class TestPromptGeneratorStatistics(unittest.TestCase):
 
         self.assertEqual(stats["total"], 100)
         self.assertGreaterEqual(stats["unique_prompts"], 95)  # 95% 以上ユニーク
-        self.assertEqual(stats["refined_count"], 0)  # リファインなしなので 0
 
         cat_total = sum(stats["category_distribution"].values())
         self.assertEqual(cat_total, 100)
-
-
-class TestPromptGeneratorLLMRefinement(unittest.TestCase):
-    """LLM リファイン（モック）テスト"""
-
-    # リファイン後の期待プロンプト（冗長タグを除去した 60-75 words の例）
-    _REFINED_PROMPT = (
-        "single product photo, object centered, medium travel duffel with handles, "
-        "glossy black, heavy-duty canvas, modern minimalist design, brand new, "
-        "solid white background, flat studio lighting, no background shadows, frontal view, "
-        "fully visible, photorealistic"
-    )
-
-    def setUp(self):
-        self.gen = PromptGenerator(config_dir=str(CONFIG_DIR), seed=42)
-
-    def _make_mock_client(self, refined_text: str) -> MagicMock:
-        """OpenAI クライアントをモック化する"""
-        mock_choice = MagicMock()
-        mock_choice.message.content = refined_text
-        mock_response = MagicMock()
-        mock_response.choices = [mock_choice]
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        return mock_client
-
-    def test_llm_refinement_mock(self):
-        """LLM リファインが OpenAI クライアント経由で動作し、refined メタデータが付与されること"""
-        base_prompts = self.gen.generate_combinatorial(n=3)
-
-        with patch.object(self.gen.__class__, "_wait_for_vllm", return_value=None), \
-             patch("openai.OpenAI", return_value=self._make_mock_client(self._REFINED_PROMPT)):
-            refined = self.gen.generate_with_llm_refinement(base_prompts)
-
-        self.assertEqual(len(refined), 3)
-        for i, r in enumerate(refined):
-            self.assertIn("metadata", r, f"[{i}] metadata なし")
-            self.assertTrue(r["metadata"].get("refined"), f"[{i}] refined フラグが立っていない")
-            self.assertIn("original_prompt", r["metadata"], f"[{i}] original_prompt が保存されていない")
-            # リファイン後のプロンプトが元プロンプトと異なること
-            self.assertNotEqual(r["prompt"], r["metadata"]["original_prompt"],
-                                f"[{i}] リファイン結果が元プロンプトと同じ")
-
-    def test_llm_refinement_output_fits_clip_budget(self):
-        """リファイン後プロンプトが CLIP 77 token 目標（≈ 350 字 / 75 words）以内であること"""
-        base_prompts = self.gen.generate_combinatorial(n=5)
-
-        with patch.object(self.gen.__class__, "_wait_for_vllm", return_value=None), \
-             patch("openai.OpenAI", return_value=self._make_mock_client(self._REFINED_PROMPT)):
-            refined = self.gen.generate_with_llm_refinement(base_prompts)
-
-        for i, r in enumerate(refined):
-            length = len(r["prompt"])
-            words = len(r["prompt"].split())
-            self.assertLessEqual(
-                words, 80,
-                f"[{i}] リファイン後プロンプトが 80 words を超えている: {words} words"
-            )
-            self.assertLessEqual(
-                length, 400,
-                f"[{i}] リファイン後プロンプトが 400 字を超えている: {length} 字"
-            )
-
-    def test_llm_refinement_vllm_unavailable_raises(self):
-        """vLLM サーバーが起動していない場合 RuntimeError で異常終了すること"""
-        base_prompts = self.gen.generate_combinatorial(n=2)
-
-        # _wait_for_vllm が即タイムアウトするようモック
-        with patch.object(
-            self.gen.__class__, "_wait_for_vllm",
-            side_effect=RuntimeError(
-                "[PromptGenerator] vLLM サーバーに接続できませんでした。\n"
-                "  URL      : http://localhost:8001/health\n"
-                "  待機時間 : 300 秒"
-            )
-        ):
-            with self.assertRaises(RuntimeError) as ctx:
-                self.gen.generate_with_llm_refinement(base_prompts)
-
-        self.assertIn("vLLM", str(ctx.exception))
-        self.assertIn("接続できませんでした", str(ctx.exception))
-
-    def test_llm_refinement_vllm_unavailable_error_contains_instructions(self):
-        """RuntimeError メッセージに対処方法が含まれること"""
-        base_prompts = self.gen.generate_combinatorial(n=1)
-
-        with patch.object(
-            self.gen.__class__, "_wait_for_vllm",
-            side_effect=RuntimeError(
-                "[PromptGenerator] vLLM サーバーに接続できませんでした。\n"
-                "  対処方法 : vLLM サーバーを起動してから再実行してください。"
-            )
-        ):
-            with self.assertRaises(RuntimeError) as ctx:
-                self.gen.generate_with_llm_refinement(base_prompts)
-
-        self.assertIn("対処方法", str(ctx.exception))
-
-    def test_wait_for_vllm_returns_immediately_when_available(self):
-        """ヘルスチェックが 200 を返す場合 RuntimeError を送出しないこと"""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-
-        with patch("src.prompt_generator.PromptGenerator._wait_for_vllm") as mock_wait:
-            mock_wait.return_value = None  # 正常終了
-            # _wait_for_vllm が呼ばれてもエラーにならないことを確認
-            with patch("openai.OpenAI", return_value=self._make_mock_client(self._REFINED_PROMPT)):
-                base_prompts = self.gen.generate_combinatorial(n=1)
-                result = self.gen.generate_with_llm_refinement(base_prompts)
-        self.assertEqual(len(result), 1)
-
-    def test_wait_for_vllm_raises_after_timeout(self):
-        """_wait_for_vllm がタイムアウト後に RuntimeError を送出すること"""
-        # 存在しないポートに極短タイムアウトで接続 → 即タイムアウト
-        with self.assertRaises(RuntimeError) as ctx:
-            self.gen._wait_for_vllm(
-                "http://localhost:19999/v1",
-                timeout=0.1,         # 実質即タイムアウト
-                poll_interval=0.05,
-            )
-        self.assertIn("接続できませんでした", str(ctx.exception))
 
 
 class TestCheckedBaggagePromptQuality(unittest.TestCase):
