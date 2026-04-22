@@ -15,7 +15,7 @@ project:
 # ---- 生成数 ----
 generation:
   # 生成するプロンプトの総数（category_weights に従い確率的に各カテゴリへ割り当て）
-  prompt_generate_number: 100
+  prompt_generate_number: 20
   image_batch_size: 4          # 一度に生成する画像数
 
 # ---- ステップ有効化フラグ ----
@@ -55,11 +55,18 @@ models:
   # Qwen3-VL-32B (VLM/LLM) — vLLM サーバーとして使用
   vlm:
     base_url: "http://localhost:8001/v1"
-    model_name: "~/models/Qwen3-VL-32B-Instruct"  # 他ユーザーは自分の $HOME/models/ に合わせて変更
+    # model_name: vLLM に登録されるモデル識別子。
+    #   vLLM は起動時に渡したパスをそのままモデル名として登録するため、
+    #   チルダ（~/）は展開されず API リクエストが 404 になる。
+    #   必ずフルパスで指定すること。
+    #   PC 移行時は `curl http://localhost:8001/v1/models` で登録名を確認し、
+    #   その値をここに設定する。
+    #   例: "/home/<username>/models/Qwen3-VL-32B-Instruct"
+    model_name: "/home/ntt/models/Qwen3-VL-32B-Instruct"
     temperature: 0.1
     max_tokens: 2048
-    # 起動コマンド:
-    #   vllm serve Qwen/Qwen3-VL-32B-Instruct --dtype bfloat16
+    # 起動コマンド（--max-model-len はメモリ状況に応じて調整）:
+    #   vllm serve ~/models/Qwen3-VL-32B-Instruct --dtype bfloat16 --port 8001 --max-model-len 16384
 
 # ---- T-1.2: プロンプト生成 ----
 prompt_generation:

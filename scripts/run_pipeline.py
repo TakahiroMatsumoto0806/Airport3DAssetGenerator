@@ -280,8 +280,20 @@ def main() -> int:
     # 実行ステップを決定
     vllm_enabled = cfg.get("vllm", {}).get("enabled", True)
     vllm_base_url = cfg.get("models", {}).get("vlm", {}).get("base_url", "http://localhost:8001/v1")
+    # config の long キー（t1_prompt_generation 等）を short 名（prompt 等）へ正規化
+    _STEP_KEY_MAP = {
+        "t1_prompt_generation": "prompt",
+        "t2_image_generation":  "image",
+        "t2_image_qa":          "image_qa",
+        "t3_mesh_generation":   "mesh",
+        "t3_mesh_qa":           "mesh_qa",
+        "t3_mesh_vlm_qa":       "mesh_vlm_qa",
+        "t4_physics":           "physics",
+        "t4_sim_export":        "sim_export",
+    }
     steps_to_run = args.steps or [
-        step for step, enabled in cfg.steps.items() if enabled
+        _STEP_KEY_MAP.get(step, step)
+        for step, enabled in cfg.steps.items() if enabled
     ]
 
     # CLAUDE.md: モデル同時ロード禁止、逐次ロード戦略を厳守

@@ -434,7 +434,8 @@ class AL3DGPipeline:
             "t4_sim_export": "sim_export",
         }
         if steps is not None:
-            return steps
+            # 設定キー名 (t1_prompt_generation 等) と短縮名 (prompt 等) の両方を許容する
+            return [step_map.get(s, s) for s in steps]
 
         enabled = []
         cfg_steps = self.cfg.get("steps", {})

@@ -25,14 +25,6 @@ def _make_fake_outputs(base: Path) -> Path:
     (outputs / "assets_final" / "000001").mkdir(parents=True)
     (outputs / "assets_final" / "000001" / "visual.glb").write_text("glb_data")
     (outputs / "assets_final" / "000001" / "physics.json").write_text("{}")
-    (outputs / "assets_final" / "collisions").mkdir(parents=True)
-    (outputs / "assets_final" / "collisions" / ".gitkeep").touch()
-    (outputs / "assets_final" / "isaac").mkdir(parents=True)
-    (outputs / "assets_final" / "isaac" / ".gitkeep").touch()
-    (outputs / "assets_final" / "metadata").mkdir(parents=True)
-    (outputs / "assets_final" / "metadata" / ".gitkeep").touch()
-    (outputs / "assets_final" / "mjcf").mkdir(parents=True)
-    (outputs / "assets_final" / "mjcf" / ".gitkeep").touch()
     (outputs / "images").mkdir(parents=True)
     (outputs / "images" / "img_000001.png").write_bytes(b"\x89PNG")
     (outputs / "images_approved").mkdir(parents=True)
@@ -55,10 +47,7 @@ def _make_fake_outputs(base: Path) -> Path:
 TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}$")
 
 EXPECTED_LEAF_DIRS = [
-    "assets_final/collisions",
-    "assets_final/isaac",
-    "assets_final/metadata",
-    "assets_final/mjcf",
+    "assets_final",
     "images",
     "images_approved",
     "logs",

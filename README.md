@@ -285,14 +285,15 @@ outputs/
 │   ├── *.glb                             # メッシュ QA + VLM QA 合格メッシュ
 │   └── mesh_vlm_qa_results.json         # VLM QA スコア記録
 ├── assets_final/
-│   ├── *.glb                             # 物理プロパティ付き最終メッシュ
-│   ├── metadata/
-│   │   └── *.json                        # Isaac Sim USD エクスポートメタデータ
-│   └── collisions/
-│       └── *.obj                         # CoACD 凸分解コリジョンメッシュ
+│   └── <asset_id>/                       # アセット毎のディレクトリ
+│       ├── visual.glb                    # ビジュアル GLB
+│       ├── collisions/*.stl              # CoACD 凸分解コリジョンメッシュ
+│       ├── physics.json                  # 物理プロパティ
+│       ├── <asset_id>.usda               # Isaac Sim USDA
+│       └── <asset_id>_usd_meta.json      # Isaac Sim USD エクスポートメタデータ
 ├── renders/                              # VLM 3D 検品用マルチビューレンダリング画像
 ├── reports/
-│   ├── prompt_review.html                # プロンプト一覧・VLM リファイン入出力（HTML）
+│   ├── prompt_review.html                # プロンプト一覧・生成画像サムネイル（HTML）
 │   ├── image_qa_review.html              # 画像 QA 検品レポート（HTML）
 │   ├── mesh_vlm_qa_review.html           # 3D 検品レポート（HTML）
 │   ├── pass_rate_report.html             # カテゴリ別合格率レポート（HTML）
