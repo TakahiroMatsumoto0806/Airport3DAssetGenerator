@@ -374,8 +374,13 @@ class TestImageGeneratorBatch(unittest.TestCase):
 
         self.assertEqual(call_seeds, custom_seeds)
 
-    def test_default_seeds_are_index(self):
-        """seeds が None の場合、seed にインデックス値が使われること"""
+    def test_default_seeds_are_random(self):
+        """seeds が None の場合、ランダムシードが生成されること。
+
+        以前はインデックス値 [0, 1, 2, ...] を seed に使っていたため、実行のたびに
+        同じ画像が生成される不具合があった。generate_batch は seeds=None のとき
+        random.randint(0, 2**32-1) でシードを生成する仕様に修正されている。
+        """
         call_seeds = []
 
         from PIL import Image as PILImage
@@ -389,7 +394,15 @@ class TestImageGeneratorBatch(unittest.TestCase):
         prompts = _make_prompt_list(3)
         self.gen.generate_batch(prompts, output_dir=self.tmpdir, seeds=None)
 
-        self.assertEqual(call_seeds, [0, 1, 2])
+        # 3 件のシードが生成され、インデックス値 [0, 1, 2] ではないこと
+        self.assertEqual(len(call_seeds), 3)
+        self.assertNotEqual(call_seeds, [0, 1, 2],
+                            "seeds=None でインデックス値が使われている（ランダム化されていない）")
+        # 全てのシードが 32-bit 整数範囲内であること
+        for s in call_seeds:
+            self.assertIsInstance(s, int)
+            self.assertGreaterEqual(s, 0)
+            self.assertLess(s, 2**32)
 
 
 class TestImageGeneratorUnload(unittest.TestCase):

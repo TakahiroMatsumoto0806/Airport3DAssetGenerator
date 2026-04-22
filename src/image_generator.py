@@ -24,6 +24,7 @@ import csv
 import gc
 import json
 import os
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -234,11 +235,15 @@ class ImageGenerator:
                 if idx < len(prompts):
                     prompts[idx]["prompt"] = modified_prompt
 
+        if seeds is None:
+            seeds = [random.randint(0, 2**32 - 1) for _ in range(len(prompts))]
+            logger.info(f"ランダムシード生成: {seeds[:5]}{'...' if len(seeds) > 5 else ''}")
+
         for idx, item in enumerate(prompts):
             prompt_text = item["prompt"]
             metadata = item.get("metadata", {})
             prompt_id = metadata.get("prompt_id", f"{idx:06d}")
-            seed = seeds[idx] if seeds else idx
+            seed = seeds[idx]
 
             filename = self._make_filename(prompt_id, idx)
             image_path = output_dir / filename
