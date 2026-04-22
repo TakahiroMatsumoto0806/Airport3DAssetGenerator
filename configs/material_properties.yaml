@@ -171,60 +171,18 @@ materials:
     randomize_range: 0.08
     notes: "ベビーカーフレーム等の金属パーツ。"
 
-  # ---------- 複合材質（カテゴリ別デフォルト）----------
-  # 複数材質が混在するアイテム用の実効プロパティ
-  composite_hard_suitcase:
-    display_name: "ハードスーツケース（複合）"
-    density_kg_m3: 1100
-    density_range: [900, 1300]
-    static_friction: 0.38
-    dynamic_friction: 0.32
-    restitution: 0.18
-    randomize_range: 0.15
-    notes: "ポリカーボネート+フレーム+ホイール+ハンドルの複合実効値。"
-
-  composite_soft_suitcase:
-    display_name: "ソフトスーツケース（複合）"
-    density_kg_m3: 650
-    density_range: [500, 800]
-    static_friction: 0.50
-    dynamic_friction: 0.42
-    restitution: 0.06
-    randomize_range: 0.15
-    notes: "ファブリック+フレーム+ホイールの複合実効値。"
-
-  composite_backpack:
-    display_name: "バックパック（複合）"
-    density_kg_m3: 450
-    density_range: [350, 580]
-    static_friction: 0.55
-    dynamic_friction: 0.46
-    restitution: 0.04
-    randomize_range: 0.18
-    notes: "バックパックの実効値。内容物なし。"
-
-  composite_stroller:
-    display_name: "ベビーカー（複合）"
-    density_kg_m3: 1500
-    density_range: [1200, 1900]
-    static_friction: 0.40
-    dynamic_friction: 0.32
-    restitution: 0.10
-    randomize_range: 0.12
-    notes: "アルミ+プラスチック+ファブリックの複合。"
-
 # ---- luggage_categories.yaml との対応マッピング ----
-# カテゴリ -> デフォルト使用材質キー
+# カテゴリ -> デフォルト使用材質キー（VLM で検出できなかった場合のフォールバック）
 category_material_mapping:
-  hard_suitcase: composite_hard_suitcase
-  soft_suitcase: composite_soft_suitcase
-  backpack: composite_backpack
+  hard_suitcase: polycarbonate
+  soft_suitcase: polyester
+  backpack: nylon
   duffel_bag: nylon
   cardboard_box: cardboard
   hard_case: abs_plastic
   golf_bag: nylon
   ski_bag: nylon
-  stroller: composite_stroller
+  stroller: aluminum
   instrument_case: abs_plastic
 
 # ---- スケール正規化設定 ----

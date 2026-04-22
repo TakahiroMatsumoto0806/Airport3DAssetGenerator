@@ -75,7 +75,7 @@ class PhysicsProcessor:
         if luggage_type and luggage_type in self._category_map:
             return self._category_map[luggage_type]
         # フォールバック
-        return "composite_hard_suitcase"
+        return "polycarbonate"
 
     def _randomize(self, value: float, range_ratio: float) -> float:
         """値を ±range_ratio の範囲でランダム変動させる"""
@@ -197,8 +197,8 @@ class PhysicsProcessor:
         import trimesh
 
         if material not in self._materials:
-            logger.warning(f"  材質 '{material}' が未定義。composite_hard_suitcase にフォールバック")
-            material = "composite_hard_suitcase"
+            logger.warning(f"  材質 '{material}' が未定義。polycarbonate にフォールバック")
+            material = "polycarbonate"
 
         mat = self._materials[material]
         rr = float(mat.get("randomize_range", self._default_randomize))
@@ -326,6 +326,14 @@ class PhysicsProcessor:
             result["physics"] = physics
 
             # physics.json に保存
+            extents = scale_result.get("scaled_extents_mm", [0.0, 0.0, 0.0])
+            sorted_extents = sorted(extents, reverse=True)
+            dimensions_mm = {
+                "H": round(sorted_extents[0], 1),
+                "W": round(sorted_extents[1], 1),
+                "D": round(sorted_extents[2], 1),
+            }
+
             physics_json_path = asset_dir / "physics.json"
             with open(physics_json_path, "w", encoding="utf-8") as f:
                 json.dump(
@@ -335,6 +343,7 @@ class PhysicsProcessor:
                         "luggage_type": luggage_type,
                         "collision_count": len(collision_paths),
                         "scale_factor": scale_result["scale_factor"],
+                        "dimensions_mm": dimensions_mm,
                     },
                     f, ensure_ascii=False, indent=2,
                 )
