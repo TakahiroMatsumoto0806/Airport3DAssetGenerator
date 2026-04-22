@@ -181,6 +181,31 @@ class AL3DGPipeline:
             "total":   len(result_list),
         }
         logger.info(f"  画像生成完了: 成功={result['success']}, 失敗={result['failed']}")
+
+        # 画像生成後に prompt_review.html を再生成し、生成画像を base64 埋め込みする。
+        # これにより outputs/ ディレクトリを移動しても画像表示が維持される。
+        try:
+            from src.prompt_generator import PromptGenerator
+            pg_cfg = self.cfg.get("prompt_generation", {})
+            report_gen = PromptGenerator(
+                config_dir=pg_cfg.get("configs_dir", "configs"),
+                seed=pg_cfg.get("seed", 42),
+            )
+            report_dir = Path(self.cfg.paths.get("reports_dir", "outputs/reports"))
+            report_dir.mkdir(parents=True, exist_ok=True)
+            images_csv_dir = Path(
+                self.cfg.paths.get("images_csv_dir", "outputs/images_csv")
+            )
+            report_gen.generate_html_report(
+                prompts_json_path=prompt_file,
+                image_gen_csv_path=str(images_csv_dir / "image_generation_prompts.csv"),
+                images_dir=output_dir,
+                output_path=str(report_dir / "prompt_review.html"),
+            )
+            logger.info(f"  プロンプトレビュー再生成: {report_dir / 'prompt_review.html'}")
+        except Exception as e:
+            logger.warning(f"  prompt_review.html 再生成エラー: {e}")
+
         return result
 
     def run_image_qa(self, resume: bool = True) -> dict:
@@ -356,6 +381,20 @@ class AL3DGPipeline:
         logger.info(
             f"  物理付与完了: 成功={result.get('success')}, 失敗={result.get('failed')}"
         )
+
+        try:
+            report_dir = Path(self.cfg.paths.get("reports_dir", "outputs/reports"))
+            report_dir.mkdir(parents=True, exist_ok=True)
+            render_dir = self.cfg.mesh_vlm_qa.get("render_dir", "outputs/renders")
+            proc.generate_html_report(
+                output_path=str(report_dir / "physics_report.html"),
+                assets_dir=phys_cfg.get("output_dir", "outputs/assets_final"),
+                render_dir=render_dir,
+            )
+            logger.info(f"  物理プロパティレポート: {report_dir / 'physics_report.html'}")
+        except Exception as e:
+            logger.debug(f"  physics_report.html 生成スキップ: {e}")
+
         return result
 
     def run_sim_export(self, resume: bool = True) -> dict:

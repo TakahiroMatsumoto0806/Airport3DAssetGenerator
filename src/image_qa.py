@@ -96,7 +96,7 @@ Return a JSON object with exactly these keys:
   "is_checked_baggage_appropriate": <true if the item is an appropriate type and size for airline checked baggage — this includes: checked suitcases, large backpacks, duffel bags, equipment cases, golf bags, strollers, instrument cases, sealed cardboard shipping boxes, and any large packaged item typically checked at an airport; false ONLY if the item is clearly too small (small handbag, clutch, tiny purse, wallet, small accessory) OR is a loose unpackaged non-baggage object>,
   "checked_in_ready": <true if you could walk up to an airline check-in counter RIGHT NOW and hand this item to staff — handle retracted or absent, all openings sealed (zippers/clasps for bags, tape for boxes), item is large enough for check-in; false otherwise>,
   "material_estimate": <string: primary material, e.g. "polycarbonate", "nylon", "leather">,
-  "is_fully_visible": <true if the ENTIRE object is visible with no cropping or cut-off edges, false if any part extends beyond the frame>,
+  "is_fully_visible": <true ONLY if the ENTIRE object including all corners, wheels, handles, straps, and protruding parts is fully inside the frame with visible margin on all four sides; false if ANY edge or part of the object touches or goes beyond the image border>,
   "contrast_sufficient": <true if the object has clearly visible edges against the background; false if the object blends in due to similar color>,
   "object_coverage_pct": <int 0-100, estimated percentage of the image area occupied by the object; ideal is 60-80 for 3D generation>,
   "has_background_shadow": <true if there are shadows cast on the background or floor; these are harmful for 3D reconstruction>,
@@ -630,26 +630,17 @@ class ImageQA:
         評価結果を HTML レポートとして生成する。
 
         テーブル構成:
-        | # | 画像 | 送信プロンプト | Realism | Integrity | Coverage% | 条件 | Pass | Verdict |
+        | # | 画像 | Prompt | Real | Integ | Cov% | Conditions | Pass | Verdict | Reason |
 
         Args:
             output_path: HTML 保存先ファイルパス
         """
-        from pathlib import Path
+        import html as _html
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 結果 JSON を読み込む
-        # 先ほど保存された結果から、system_prompt_used と results を取得
-        # NOTE: evaluate_batch() が呼ばれた直後にこのメソッドを呼ぶ前提
-        # （ただし、呼び出さない場合もあるので、JSON から直接読む）
-
-        # 対応する image_qa_results.json を探す（output_path の命名規則から推測）
-        # output_path が outputs/reports/image_qa_review.html の場合
-        # → outputs/images_approved/image_qa_results.json を探す
         results_json_path = Path("outputs/images_approved/image_qa_results.json")
-
         if not results_json_path.exists():
             logger.warning(f"結果 JSON が見つかりません: {results_json_path}")
             return
@@ -661,10 +652,12 @@ class ImageQA:
             logger.error(f"結果 JSON の読み込みに失敗: {e}")
             return
 
-        system_prompt_used = payload.get("system_prompt_used", "")
         results = payload.get("results", [])
 
-        # HTML を組み立てる
+        # モーダルは tbody の外（</table> の後）にまとめて出力する。
+        # tbody 内に <div> を置くと不正 HTML になりレイアウトが崩れる。
+        modal_parts: list[str] = []
+
         html_parts = [
             """<!DOCTYPE html>
 <html lang="ja">
@@ -677,47 +670,171 @@ class ImageQA:
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; color: #333; }
         .container { max-width: 1400px; margin: 20px auto; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; margin-bottom: 20px; }
-        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 30px; }
         .stat-card { background: #ecf0f1; padding: 15px; border-radius: 5px; border-left: 4px solid #3498db; }
-        .stat-card.pass { border-left-color: #27ae60; }
+        .stat-card.pass   { border-left-color: #27ae60; }
         .stat-card.review { border-left-color: #f39c12; }
         .stat-card.reject { border-left-color: #e74c3c; }
         .stat-value { font-size: 24px; font-weight: bold; color: #2c3e50; }
         .stat-label { font-size: 12px; color: #7f8c8d; margin-top: 5px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th { background: #34495e; color: white; padding: 12px; text-align: left; font-weight: 600; }
-        td { padding: 12px; border-bottom: 1px solid #ddd; }
+        /* table-layout: fixed で列幅を明示制御し横伸びを防ぐ */
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: fixed; }
+        th { background: #34495e; color: white; padding: 8px 6px; text-align: left; font-weight: 600; white-space: nowrap; font-size: 13px; }
+        td { padding: 8px 6px; border-bottom: 1px solid #ddd; vertical-align: top;
+             word-break: break-word; overflow-wrap: break-word; white-space: normal; font-size: 13px; }
         tr:hover { background: #f9f9f9; }
-        .thumb { max-width: 60px; max-height: 60px; cursor: pointer; border-radius: 3px; }
-        .verdict-pass { background: #d4edda; color: #155724; padding: 4px 8px; border-radius: 3px; }
-        .verdict-review { background: #fff3cd; color: #856404; padding: 4px 8px; border-radius: 3px; }
-        .verdict-reject { background: #f8d7da; color: #721c24; padding: 4px 8px; border-radius: 3px; }
-        .check { color: #27ae60; font-weight: bold; }
-        .cross { color: #e74c3c; font-weight: bold; }
-        .prompt-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+        col.c-num     { width: 36px; }
+        col.c-img     { width: 72px; }
+        col.c-prompt  { width: 130px; }
+        col.c-score   { width: 48px; }
+        col.c-cond    { width: 108px; }
+        col.c-pass    { width: 38px; }
+        col.c-verdict { width: 64px; }
+        /* c-reason は残り幅を自動取得 */
+        td.center { text-align: center; }
+        .thumb { max-width: 60px; max-height: 60px; cursor: pointer; border-radius: 3px; display: block; }
+        .verdict-pass   { background: #d4edda; color: #155724; padding: 3px 6px; border-radius: 3px; display: inline-block; font-size: 12px; }
+        .verdict-review { background: #fff3cd; color: #856404; padding: 3px 6px; border-radius: 3px; display: inline-block; font-size: 12px; }
+        .verdict-reject { background: #f8d7da; color: #721c24; padding: 3px 6px; border-radius: 3px; display: inline-block; font-size: 12px; }
+        .check    { color: #27ae60; font-weight: bold; }
+        .cross    { color: #e74c3c; font-weight: bold; }
+        .null-val { color: #bbb; }
+        /* 条件アイコン: 3列グリッドで3行 */
+        .cond-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; font-size: 11px; }
+        .cond-item { cursor: help; text-align: center; white-space: nowrap; }
+        /* プロンプトセル: 3行クランプ、クリックで全文モーダル */
+        .prompt-cell { font-size: 11px; color: #555; cursor: pointer;
+                       display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+                       overflow: hidden; line-height: 1.4; text-decoration: underline dotted; }
+        .reason-cell { font-size: 12px; color: #555; line-height: 1.5; }
+        /* モーダル */
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
         .modal.show { display: flex; align-items: center; justify-content: center; }
         .modal-content { background: white; padding: 20px; border-radius: 8px; max-width: 90%; max-height: 90%; overflow: auto; position: relative; }
         .modal-close { position: absolute; top: 10px; right: 15px; font-size: 24px; cursor: pointer; color: #999; }
         .modal-close:hover { color: #333; }
-        .img-preview { max-width: 80vw; max-height: 80vh; border-radius: 5px; }
-        .prompt-section { margin: 15px 0; padding: 10px; background: #f0f0f0; border-left: 3px solid #3498db; border-radius: 3px; }
-        .prompt-section h3 { margin-bottom: 8px; color: #2c3e50; }
-        .prompt-text { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; font-size: 12px; }
+        .img-preview { max-width: 80vw; max-height: 80vh; border-radius: 5px; display: block; }
+        .prompt-section { margin: 10px 0; padding: 10px; background: #f0f0f0; border-left: 3px solid #3498db; border-radius: 3px; }
+        .prompt-section h3 { margin-bottom: 8px; color: #2c3e50; font-size: 14px; }
+        .prompt-text { font-family: monospace; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+        /* Conditions 凡例 */
+        .legend { margin: 20px 0; padding: 14px 16px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; }
+        .legend-title { font-weight: 600; font-size: 13px; color: #2c3e50; margin-bottom: 10px; }
+        .legend-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px 20px; }
+        .legend-item { font-size: 12px; color: #444; line-height: 1.5; }
+        .leg-label { display: inline-block; background: #34495e; color: white; font-size: 11px; font-weight: 600;
+                     padding: 1px 5px; border-radius: 3px; margin-right: 4px; min-width: 28px; text-align: center; }
+        .legend-note { margin-top: 10px; font-size: 11px; color: #888; border-top: 1px solid #dee2e6; padding-top: 8px; }
+        /* フィルターバー */
+        .filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+                      margin: 16px 0 8px; padding: 12px 14px; background: #f0f4f8;
+                      border: 1px solid #cdd8e3; border-radius: 6px; }
+        .filter-group { display: flex; align-items: center; gap: 6px; }
+        .filter-group label { font-size: 12px; font-weight: 600; color: #555; white-space: nowrap; }
+        .fbtn { font-size: 12px; padding: 3px 10px; border: 1px solid #bbb; border-radius: 3px;
+                background: white; cursor: pointer; transition: background .15s; }
+        .fbtn:hover { background: #e0e8f0; }
+        .fbtn.active { background: #34495e; color: white; border-color: #34495e; }
+        .fbtn.ng-active { background: #e74c3c; color: white; border-color: #c0392b; }
+        #reason-search { font-size: 12px; padding: 3px 8px; border: 1px solid #bbb; border-radius: 3px;
+                         width: 180px; outline: none; }
+        #reason-search:focus { border-color: #3498db; }
+        #row-count { font-size: 12px; color: #666; margin-left: auto; white-space: nowrap; }
+        .reset-btn { font-size: 12px; padding: 3px 10px; border: 1px solid #e74c3c; border-radius: 3px;
+                     background: white; color: #e74c3c; cursor: pointer; }
+        .reset-btn:hover { background: #fdecea; }
+        /* ソート可能列ヘッダー */
+        th[data-col] { cursor: pointer; user-select: none; }
+        th[data-col]:hover { background: #4a6070; }
+        th[data-col]::after { content: ' ⇅'; font-size: 10px; opacity: .5; }
+        th[data-col].sort-asc::after  { content: ' ▲'; opacity: 1; }
+        th[data-col].sort-desc::after { content: ' ▼'; opacity: 1; }
     </style>
     <script>
         function openModal(id) { document.getElementById(id).classList.add('show'); }
         function closeModal(id) { document.getElementById(id).classList.remove('show'); }
-        window.onclick = function(event) {
-            if (event.target.classList.contains('modal')) {
-                event.target.classList.remove('show');
-            }
+        window.onclick = function(e) { if (e.target.classList.contains('modal')) e.target.classList.remove('show'); }
+
+        /* ---- Sort ---- */
+        let _sortCol = null, _sortAsc = true;
+        function sortTable(col) {
+            if (_sortCol === col) { _sortAsc = !_sortAsc; } else { _sortCol = col; _sortAsc = true; }
+            document.querySelectorAll('th[data-col]').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (th.dataset.col === col) th.classList.add(_sortAsc ? 'sort-asc' : 'sort-desc');
+            });
+            const tbody = document.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort((a, b) => {
+                const va = a.dataset[col] ?? '', vb = b.dataset[col] ?? '';
+                const na = parseFloat(va), nb = parseFloat(vb);
+                if (!isNaN(na) && !isNaN(nb)) return _sortAsc ? na - nb : nb - na;
+                return _sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+            });
+            rows.forEach(r => tbody.appendChild(r));
+            updateCount();
         }
+
+        /* ---- Filter ---- */
+        const _f = { verdict: '', ngConds: new Set(), reason: '' };
+
+        function setVerdict(v, btn) {
+            _f.verdict = v;
+            document.querySelectorAll('.verdict-fbtn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            applyFilters();
+        }
+        function toggleCond(cond, btn) {
+            if (_f.ngConds.has(cond)) { _f.ngConds.delete(cond); btn.classList.remove('ng-active'); }
+            else                       { _f.ngConds.add(cond);    btn.classList.add('ng-active'); }
+            applyFilters();
+        }
+        function setReason(v) { _f.reason = v.toLowerCase(); applyFilters(); }
+
+        function applyFilters() {
+            const rows = document.querySelectorAll('tbody tr');
+            let visible = 0;
+            rows.forEach(row => {
+                let show = true;
+                if (_f.verdict && row.dataset.verdict !== _f.verdict) show = false;
+                if (show && _f.ngConds.size > 0) {
+                    // AND条件: 選択したNG条件をすべて満たす行のみ表示
+                    for (const c of _f.ngConds) {
+                        if (row.dataset[c] !== '0') { show = false; break; }
+                    }
+                }
+                if (show && _f.reason) {
+                    const txt = (row.querySelector('.reason-cell')?.textContent || '').toLowerCase();
+                    if (!txt.includes(_f.reason)) show = false;
+                }
+                row.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            updateCount(visible, rows.length);
+        }
+        function updateCount(v, t) {
+            if (v === undefined) {
+                const rows = document.querySelectorAll('tbody tr');
+                v = Array.from(rows).filter(r => r.style.display !== 'none').length;
+                t = rows.length;
+            }
+            document.getElementById('row-count').textContent = v + ' / ' + t + ' 件表示';
+        }
+        function resetFilters() {
+            _f.verdict = ''; _f.ngConds.clear(); _f.reason = '';
+            document.querySelectorAll('.verdict-fbtn').forEach(b => b.classList.remove('active'));
+            document.querySelector('.verdict-fbtn[data-all]').classList.add('active');
+            document.querySelectorAll('.cond-fbtn').forEach(b => b.classList.remove('ng-active'));
+            document.getElementById('reason-search').value = '';
+            document.querySelectorAll('tbody tr').forEach(r => r.style.display = '');
+            updateCount();
+        }
+        window.addEventListener('DOMContentLoaded', updateCount);
     </script>
 </head>
 <body>
     <div class="container">
-        <h1>📊 Image QA Review Report</h1>
+        <h1>Image QA Review Report</h1>
 """
         ]
 
@@ -749,113 +866,197 @@ class ImageQA:
         </div>
 """)
 
-        # テーブルヘッダー
         html_parts.append("""
+        <div class="legend">
+            <div class="legend-title">Conditions 列の見方</div>
+            <div class="legend-grid">
+                <div class="legend-item"><span class="leg-label">Vis</span> Fully Visible — 荷物が画面内に完全に収まっているか（見切れNG）</div>
+                <div class="legend-item"><span class="leg-label">Ctr</span> Contrast — 背景に対して輪郭が明瞭に見えるか</div>
+                <div class="legend-item"><span class="leg-label">Fcs</span> Focus — 被写体がシャープにピントが合っているか</div>
+                <div class="legend-item"><span class="leg-label">Ang</span> Angle — カメラが正面/水平付近か（真上・真下NG）</div>
+                <div class="legend-item"><span class="leg-label">Shd</span> No BG Shadow — 背景・床への落ち影がないか（3D再構成に有害）</div>
+                <div class="legend-item"><span class="leg-label">Art</span> No Artifacts — 意図しない別物体・変形・ノイズがないか</div>
+                <div class="legend-item"><span class="leg-label">Hdl</span> Handle Retracted — 伸縮ハンドルが完全収納されているか（null=ハンドルなし）</div>
+                <div class="legend-item"><span class="leg-label">Cls</span> Bag Closed — 全ファスナー・留め具・フラップが閉じているか</div>
+                <div class="legend-item"><span class="leg-label">Rdy</span> Check-in Ready — 今すぐ航空会社カウンターで受託手荷物として預けられる状態か</div>
+            </div>
+            <div class="legend-note">✓ = OK（緑）　✗ = NG（赤）　– = 該当なし（灰）　Prompt列クリックで送信プロンプト全文を表示</div>
+        </div>
+
+        <div class="filter-bar">
+            <div class="filter-group">
+                <label>Verdict:</label>
+                <button class="fbtn verdict-fbtn active" data-all onclick="setVerdict('',this)">All</button>
+                <button class="fbtn verdict-fbtn" onclick="setVerdict('pass',this)">Pass</button>
+                <button class="fbtn verdict-fbtn" onclick="setVerdict('review',this)">Review</button>
+                <button class="fbtn verdict-fbtn" onclick="setVerdict('reject',this)">Reject</button>
+            </div>
+            <div class="filter-group">
+                <label>NG条件 (AND):</label>
+                <button class="fbtn cond-fbtn" onclick="toggleCond('vis',this)">Vis</button>
+                <button class="fbtn cond-fbtn" onclick="toggleCond('ctr',this)">Ctr</button>
+                <button class="fbtn cond-fbtn" onclick="toggleCond('fcs',this)">Fcs</button>
+                <button class="fbtn cond-fbtn" onclick="toggleCond('ang',this)">Ang</button>
+                <button class="fbtn cond-fbtn" onclick="toggleCond('shd',this)">Shd</button>
+                <button class="fbtn cond-fbtn" onclick="toggleCond('art',this)">Art</button>
+                <button class="fbtn cond-fbtn" onclick="toggleCond('hdl',this)">Hdl</button>
+                <button class="fbtn cond-fbtn" onclick="toggleCond('cls',this)">Cls</button>
+                <button class="fbtn cond-fbtn" onclick="toggleCond('rdy',this)">Rdy</button>
+            </div>
+            <div class="filter-group">
+                <label>Reason:</label>
+                <input id="reason-search" type="text" placeholder="キーワード検索..." oninput="setReason(this.value)">
+            </div>
+            <span id="row-count"></span>
+            <button class="reset-btn" onclick="resetFilters()">リセット</button>
+        </div>
+
         <table>
+            <colgroup>
+                <col class="c-num"><col class="c-img"><col class="c-prompt">
+                <col class="c-score"><col class="c-score"><col class="c-score">
+                <col class="c-cond"><col class="c-pass"><col class="c-verdict">
+                <col>
+            </colgroup>
             <thead>
                 <tr>
-                    <th>#</th>
+                    <th data-col="idx" onclick="sortTable('idx')">#</th>
                     <th>Image</th>
-                    <th>Prompt Sent</th>
-                    <th>Realism</th>
-                    <th>Integrity</th>
-                    <th>Coverage%</th>
-                    <th>Conditions</th>
-                    <th>Pass</th>
-                    <th>Verdict</th>
+                    <th>Prompt</th>
+                    <th data-col="realism" onclick="sortTable('realism')">Real</th>
+                    <th data-col="integrity" onclick="sortTable('integrity')">Integ</th>
+                    <th data-col="coverage" onclick="sortTable('coverage')">Cov%</th>
+                    <th title="Vis/Ctr/Fcs / Ang/Shd/Art / Hdl/Cls/Rdy">Conditions</th>
+                    <th data-col="pass" onclick="sortTable('pass')">Pass</th>
+                    <th data-col="verdict" onclick="sortTable('verdict')">Verdict</th>
+                    <th>Reason</th>
                 </tr>
             </thead>
             <tbody>
 """)
 
-        # テーブル行
+        def _ci(ok, label: str, ok_tip: str, ng_tip: str) -> str:
+            """条件アイコン1個。ok=True→緑✓、False→赤✗、None→灰-"""
+            if ok is None:
+                return f'<span class="cond-item null-val" title="{label}: N/A">-</span>'
+            cls = "check" if ok else "cross"
+            sym = "✓" if ok else "✗"
+            tip = ok_tip if ok else ng_tip
+            return f'<span class="cond-item {cls}" title="{label}: {tip}">{sym}{label}</span>'
+
         for idx, result in enumerate(results, 1):
-            filename = result.get("filename", "")
             image_path = result.get("image_path", "")
             verdict = result.get("verdict", "reject")
             realism = result.get("realism_score", "-")
             integrity = result.get("object_integrity", "-")
             coverage = result.get("object_coverage_pct", "-")
             pass_bool = result.get("pass", False)
+            reason = _html.escape(result.get("reason", "") or "")
 
-            # 条件チェック
-            is_fully_visible = result.get("is_fully_visible", True)
-            contrast_sufficient = result.get("contrast_sufficient", True)
-            is_sharp_focus = result.get("is_sharp_focus", True)
-            camera_angle_ok = result.get("camera_angle_ok", True)
-            has_background_shadow = result.get("has_background_shadow", False)
-            has_artifacts = result.get("has_artifacts", False)
+            is_fully_visible    = result.get("is_fully_visible", None)
+            contrast_sufficient = result.get("contrast_sufficient", None)
+            is_sharp_focus      = result.get("is_sharp_focus", None)
+            camera_angle_ok     = result.get("camera_angle_ok", None)
+            has_bg_shadow       = result.get("has_background_shadow", None)
+            has_artifacts       = result.get("has_artifacts", None)
+            handle_retracted    = result.get("handle_retracted", None)
+            is_bag_closed       = result.get("is_bag_closed", None)
+            checked_in_ready    = result.get("checked_in_ready", None)
 
-            conditions = (
-                f"{'✓' if is_fully_visible else '✗'} "
-                f"{'✓' if contrast_sufficient else '✗'} "
-                f"{'✓' if is_sharp_focus else '✗'} "
-                f"{'✓' if camera_angle_ok else '✗'} "
-                f"{'✓' if not has_background_shadow else '✗'} "
-                f"{'✓' if not has_artifacts else '✗'}"
+            cond_html = (
+                '<div class="cond-grid">'
+                + _ci(is_fully_visible,    "Vis", "fully visible",  "cut off")
+                + _ci(contrast_sufficient, "Ctr", "good contrast",  "low contrast")
+                + _ci(is_sharp_focus,      "Fcs", "sharp",          "blurry")
+                + _ci(camera_angle_ok,     "Ang", "angle OK",       "bad angle")
+                + _ci(None if has_bg_shadow  is None else not has_bg_shadow,  "Shd", "no BG shadow", "BG shadow")
+                + _ci(None if has_artifacts  is None else not has_artifacts,  "Art", "no artifacts", "artifacts")
+                + _ci(handle_retracted,    "Hdl", "retracted",      "extended")
+                + _ci(is_bag_closed,       "Cls", "closed",         "open")
+                + _ci(checked_in_ready,    "Rdy", "ready",          "not ready")
+                + '</div>'
             )
 
             verdict_class = f"verdict-{verdict}"
             modal_id = f"modal_img_{idx}"
 
-            # 画像サムネイル生成（存在確認）
-            # HTML 出力ディレクトリから画像への相対パスを算出（別 PC でも動作するよう絶対パス禁止）
             img_thumb = ""
             img_abs = Path(image_path).resolve() if image_path else None
             if img_abs and img_abs.exists():
-                try:
-                    import os as _os
-                    rel_src = _os.path.relpath(img_abs, start=output_path.parent.resolve())
-                except ValueError:
-                    rel_src = str(img_abs)
-                # HTML 内では URL 用にスラッシュ区切りを徹底
-                rel_src = rel_src.replace("\\", "/")
-                img_thumb = f'<img src="{rel_src}" class="thumb" onclick="openModal(\'{modal_id}\')" title="Click to expand">'
-                img_modal = f"""
-            <div id="{modal_id}" class="modal">
-                <div class="modal-content">
-                    <span class="modal-close" onclick="closeModal('{modal_id}')">&times;</span>
-                    <img src="{rel_src}" class="img-preview">
-                </div>
-            </div>
-"""
-                html_parts.append(img_modal)
+                b64_data = base64.b64encode(img_abs.read_bytes()).decode()
+                img_src = f"data:image/png;base64,{b64_data}"
+                img_thumb = (
+                    f'<img src="{img_src}" class="thumb"'
+                    f' onclick="openModal(\'{modal_id}\')" title="Click to expand">'
+                )
+                modal_parts.append(f"""
+    <div id="{modal_id}" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal('{modal_id}')">&times;</span>
+            <img src="{img_src}" class="img-preview">
+        </div>
+    </div>""")
 
-            # プロンプト（展開可能）
             prompt_sent = result.get("prompt_sent", "")
             prompt_modal_id = f"modal_prompt_{idx}"
-            prompt_preview = prompt_sent[:50] + "..." if len(prompt_sent) > 50 else prompt_sent
-
-            prompt_modal = f"""
-            <div id="{prompt_modal_id}" class="modal">
-                <div class="modal-content">
-                    <span class="modal-close" onclick="closeModal('{prompt_modal_id}')">&times;</span>
-                    <div class="prompt-section">
-                        <h3>VLM Input Prompt</h3>
-                        <div class="prompt-text">{prompt_sent}</div>
-                    </div>
-                </div>
+            prompt_preview = _html.escape(
+                prompt_sent[:80] + "..." if len(prompt_sent) > 80 else prompt_sent
+            )
+            modal_parts.append(f"""
+    <div id="{prompt_modal_id}" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal('{prompt_modal_id}')">&times;</span>
+            <div class="prompt-section">
+                <h3>Prompt Sent to FLUX</h3>
+                <div class="prompt-text">{_html.escape(prompt_sent)}</div>
             </div>
-"""
-            html_parts.append(prompt_modal)
+        </div>
+    </div>""")
+
+            pass_sym = '<span class="check">✓</span>' if pass_bool else '<span class="cross">✗</span>'
+
+            def _dv(v):
+                """data属性用: None→'null'、bool→0/1、その他そのまま"""
+                if v is None: return 'null'
+                if isinstance(v, bool): return '1' if v else '0'
+                return str(v) if v != '-' else '-1'
 
             html_parts.append(f"""
-                <tr>
-                    <td>{idx}</td>
+                <tr data-verdict="{verdict}"
+                    data-idx="{idx}"
+                    data-realism="{_dv(realism)}"
+                    data-integrity="{_dv(integrity)}"
+                    data-coverage="{_dv(coverage)}"
+                    data-pass="{_dv(pass_bool)}"
+                    data-vis="{_dv(is_fully_visible)}"
+                    data-ctr="{_dv(contrast_sufficient)}"
+                    data-fcs="{_dv(is_sharp_focus)}"
+                    data-ang="{_dv(camera_angle_ok)}"
+                    data-shd="{_dv(None if has_bg_shadow is None else not has_bg_shadow)}"
+                    data-art="{_dv(None if has_artifacts is None else not has_artifacts)}"
+                    data-hdl="{_dv(handle_retracted)}"
+                    data-cls="{_dv(is_bag_closed)}"
+                    data-rdy="{_dv(checked_in_ready)}">
+                    <td class="center">{idx}</td>
                     <td>{img_thumb}</td>
-                    <td><span class="prompt-cell" onclick="openModal('{prompt_modal_id}')" title="{prompt_sent}">{prompt_preview}</span></td>
-                    <td>{realism}</td>
-                    <td>{integrity}</td>
-                    <td>{coverage}</td>
-                    <td>{conditions}</td>
-                    <td>{"✓" if pass_bool else "✗"}</td>
+                    <td><span class="prompt-cell" onclick="openModal('{prompt_modal_id}')">{prompt_preview}</span></td>
+                    <td class="center">{realism}</td>
+                    <td class="center">{integrity}</td>
+                    <td class="center">{coverage}</td>
+                    <td>{cond_html}</td>
+                    <td class="center">{pass_sym}</td>
                     <td><span class="{verdict_class}">{verdict}</span></td>
+                    <td><span class="reason-cell">{reason}</span></td>
                 </tr>
 """)
 
+        # tbody・table を閉じてからモーダルをまとめて出力（tbody 内 div は不正 HTML）
         html_parts.append("""
             </tbody>
         </table>
+""")
+        html_parts.extend(modal_parts)
+        html_parts.append("""
     </div>
 </body>
 </html>

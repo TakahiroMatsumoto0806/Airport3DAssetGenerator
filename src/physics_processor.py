@@ -474,3 +474,115 @@ class PhysicsProcessor:
 
         logger.info(f"物理付与バッチ完了: 成功={success}, 失敗={failed}")
         return {"total": total, "success": success, "failed": failed, "results": results}
+
+    def generate_html_report(
+        self,
+        output_path: str,
+        assets_dir: str = "outputs/assets_final",
+        render_dir: str = "outputs/renders",
+    ) -> None:
+        """物理プロパティ付与結果の HTML レポートを生成する。
+
+        Args:
+            output_path: 出力 HTML ファイルパス
+            assets_dir:  assets_final ルートディレクトリ
+            render_dir:  レンダリング画像ルートディレクトリ
+        """
+        import base64
+        import html as html_mod
+
+        assets_path = Path(assets_dir)
+        render_path = Path(render_dir)
+
+        skip_dirs = {"collisions", "isaac", "metadata", "mjcf"}
+        entries: list[dict] = []
+        for asset_dir in sorted(assets_path.iterdir()):
+            if not asset_dir.is_dir() or asset_dir.name in skip_dirs:
+                continue
+            phys_json = asset_dir / "physics.json"
+            if not phys_json.exists():
+                continue
+            with open(phys_json, encoding="utf-8") as f:
+                data = json.load(f)
+            entries.append(data)
+
+        def _img_tag(asset_id: str) -> str:
+            img_path = render_path / asset_id / f"{asset_id}_0.png"
+            if img_path.exists():
+                b64 = base64.b64encode(img_path.read_bytes()).decode()
+                return f'<img src="data:image/png;base64,{b64}" style="height:80px;width:auto;">'
+            return "<span style='color:#aaa'>—</span>"
+
+        def _size_str(dims: dict | None, asset_id: str) -> str:
+            if dims:
+                return f"{dims.get('H','?')} × {dims.get('W','?')} × {dims.get('D','?')}"
+            # フォールバック: visual.glb から計算
+            visual = assets_path / asset_id / "visual.glb"
+            if visual.exists():
+                try:
+                    import trimesh
+                    loaded = trimesh.load(str(visual), force="mesh", process=False)
+                    if isinstance(loaded, trimesh.Scene):
+                        loaded = trimesh.util.concatenate(list(loaded.dump()))
+                    extents = sorted(loaded.extents * 1000.0, reverse=True)
+                    return f"{extents[0]:.1f} × {extents[1]:.1f} × {extents[2]:.1f}"
+                except Exception:
+                    pass
+            return "—"
+
+        rows = []
+        for i, d in enumerate(entries, 1):
+            asset_id = d.get("asset_id", "")
+            img = _img_tag(asset_id)
+            size = _size_str(d.get("dimensions_mm"), asset_id)
+            row = (
+                f"<tr>"
+                f"<td>{i}</td>"
+                f"<td>{html_mod.escape(asset_id)}.glb</td>"
+                f"<td style='text-align:center'>{img}</td>"
+                f"<td>{html_mod.escape(str(d.get('material', '—')))}</td>"
+                f"<td style='white-space:nowrap'>{size}</td>"
+                f"<td>{d.get('mass_kg', '—')}</td>"
+                f"<td>{d.get('density_kg_m3', '—')}</td>"
+                f"<td>{d.get('static_friction', '—')}</td>"
+                f"<td>{d.get('dynamic_friction', '—')}</td>"
+                f"<td>{d.get('restitution', '—')}</td>"
+                f"</tr>"
+            )
+            rows.append(row)
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Physics Properties Report</title>
+<style>
+  body {{ font-family: sans-serif; font-size: 13px; padding: 16px; }}
+  h1 {{ font-size: 1.2em; }}
+  table {{ border-collapse: collapse; width: 100%; }}
+  th, td {{ border: 1px solid #ccc; padding: 4px 8px; vertical-align: middle; }}
+  th {{ background: #f0f0f0; text-align: center; }}
+  tr:nth-child(even) {{ background: #fafafa; }}
+</style>
+</head>
+<body>
+<h1>物理プロパティレポート — {len(entries)} 件</h1>
+<table>
+<thead>
+<tr>
+  <th>#</th><th>GLBファイル名</th><th>View 0</th><th>推定材質</th>
+  <th>サイズ H×W×D [mm]</th><th>重量 (kg)</th><th>密度 (kg/m³)</th>
+  <th>静止摩擦</th><th>動摩擦</th><th>反発係数</th>
+</tr>
+</thead>
+<tbody>
+{"".join(rows)}
+</tbody>
+</table>
+</body>
+</html>"""
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(html_content, encoding="utf-8")
+        logger.info(f"物理プロパティレポート生成: {output_path} ({len(entries)} 件)")
