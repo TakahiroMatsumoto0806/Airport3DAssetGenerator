@@ -10,11 +10,13 @@
 
 ## 正本仕様
 
-**`plan/dgx_spark_construction_plan.html`** を唯一の正本仕様とする。
+設定 YAML (`configs/pipeline_config.yaml`・`configs/prompt_templates.yaml` ほか) と
+`src/` 配下のコードを正本とする。README.md / CLAUDE.md はあくまで要約であり、
+矛盾したときはコード・設定の現状を優先し、ドキュメント側を追随させる。
 
-- 他の md / yaml / コードコメントと矛盾した場合は必ず `dgx_spark_construction_plan.html` を優先する
 - モデル構成を勝手に変更しない
 - 主構成は `FLUX.1-schnell + TRELLIS.2 + Qwen3-VL-32B + CLIP + CoACD` に固定
+  （TRELLIS.2 による 3D 生成は別 PC で実施するため、本リポジトリでは Step1/2/QA-1/QA-2/Step4/Step5 のみを実装する）
 
 ---
 
@@ -25,7 +27,7 @@
 | 0 | T-0.1, T-0.2, T-0.3 | 環境構築・モデルDL・GPU動作確認 | 0.5〜1日 |
 | 1 | T-1.1, T-1.2 | 設定ファイル・プロンプト生成エンジン | 0.5日 |
 | 2 | T-2.1, T-2.2 | 画像生成・VLM画像検品 | 1〜2日 |
-| 3 | T-3.1, T-3.2, T-3.3 | 3D生成・メッシュQA・VLMマルチビュー検品 | 2〜3日 |
+| 3 | T-3.1, T-3.2, T-3.3 | 3D生成 ※対象外（別 PC）／メッシュQA・VLMマルチビュー検品 | 2〜3日 |
 | 4 | T-4.1, T-4.2 | 物理プロパティ付与・シミュレータエクスポート | 1〜2日 |
 | 5 | T-5.1 | 多様性評価レポート | 1日 |
 | 6 | T-6.1, T-6.2 | パイプライン統合・CLI | 1〜2日 |
@@ -64,7 +66,8 @@
   - Step1（プロンプト生成: 組合せ生成のみ、GPU 不使用）→ Step2（FLUX.1 ロード・画像生成・アンロード）→ QA-1（VLM ロードで画像検品）→ QA-2（VLM で 3D メッシュ検品）
   - モデル切り替え時は `del model; torch.cuda.empty_cache()` を必ず実行
 - ピーク GPU メモリ 128GB を超えないこと（Qwen3-VL-32B 実使用 ≈ 100GB、FLUX.1 ≈ 12GB）
-- Qwen3-VL-32B は vLLM サーバーとして起動：`vllm serve Qwen/Qwen3-VL-32B --dtype bfloat16`
+- Qwen3-VL-32B は vLLM サーバーとして起動：`scripts/start_vllm_server.sh`
+  （実体は `vllm serve /home/ntt/models/Qwen3-VL-32B-Instruct --dtype bfloat16 --port 8001 --max-model-len 16384`。vLLM は `~/` を展開しないため絶対パスで渡す）
 - モデルダウンロード先：`~/models/`
 
 ---
@@ -84,7 +87,7 @@
 |------|------|
 | 生成アセット数 | prompt_generate_number に応じた任意の数 |
 | メッシュ品質 | watertight、manifold、face count 5K〜100K |
-| 3D検品 | geometry ≥ 7、texture ≥ 6 |
+| 3D検品 | geometry ≥ 6、texture ≥ 5、consistency ≥ 6、reality ≥ 6 |
 | 多様性 | Vendi Score および近似重複検出でレポート確認 |
 | エクスポート形式 | Isaac Sim USD 変換メタデータ JSON |
 | provenance | 全アセットに pass/review/reject を JSON で記録 |
@@ -96,7 +99,10 @@
 ```
 al3dg/
 ├── README.md
+├── CLAUDE.md
 ├── pyproject.toml
+├── uv.lock
+├── docker-compose.yml
 ├── configs/
 │   ├── pipeline_config.yaml
 │   ├── prompt_templates.yaml
@@ -113,34 +119,52 @@ al3dg/
 │   ├── mesh_vlm_qa.py
 │   ├── physics_processor.py
 │   ├── scale_normalizer.py
-│   ├── diversity_evaluator.py
 │   ├── sim_exporter.py
 │   └── utils/
-│       ├── rendering.py
-│       ├── mesh_repair.py
-│       └── logging_utils.py
+│       ├── __init__.py
+│       ├── logging_utils.py
+│       ├── memory_guard.py
+│       └── rendering.py
 ├── scripts/
-│   ├── setup_environment.sh
+│   ├── backup_outputs.py
+│   ├── download_models.py
+│   ├── generate_report.py
+│   ├── measure_pass_rates.py
 │   ├── run_pipeline.py
 │   ├── run_step.py
-│   └── generate_report.py
+│   ├── setup_environment.sh
+│   ├── setup_from_share.sh
+│   └── start_vllm_server.sh
 ├── tests/
-│   ├── test_prompt_generator.py
+│   ├── test_backup_outputs.py
+│   ├── test_cli.py
+│   ├── test_gpu_models.py
 │   ├── test_image_generator.py
+│   ├── test_image_qa.py
+│   ├── test_integration.py
+│   ├── test_memory_guard.py
 │   ├── test_mesh_generator.py
 │   ├── test_mesh_qa.py
-│   └── test_physics_processor.py
+│   ├── test_mesh_vlm_qa.py
+│   ├── test_p2_output_integrity.py
+│   ├── test_pass_rate_analysis.py
+│   ├── test_physics_processor.py
+│   ├── test_pipeline.py
+│   ├── test_prompt_generator.py
+│   ├── test_rejection_report.py
+│   ├── test_rendering.py
+│   └── test_sim_exporter.py
 ├── outputs/
 │   ├── prompts/
 │   ├── images/
 │   ├── images_approved/
 │   ├── meshes_raw/
 │   ├── meshes_approved/
-│   ├── assets_final/
-│   │   ├── isaac/
-│   │   ├── collisions/
-│   │   └── metadata/
-│   └── reports/
+│   ├── renders/
+│   ├── assets_final/         # <asset_id>/ 以下に visual.glb / collisions/ / physics.json / *.usda / *_usd_meta.json を格納
+│   ├── reports/
+│   └── logs/
+├── docs/
 └── docker/
     └── Dockerfile
 ```
@@ -164,9 +188,9 @@ al3dg/
 
 ## 重要ルール
 
-1. HTML 仕様書に記載のモデル名・パラメータ・閾値を変更しない
-2. VLM は全タスクで Qwen3-VL-32B に統一（8B は使用しない）
+1. `configs/` の YAML と `src/` のコードに記載されたモデル名・パラメータ・閾値を勝手に変更しない
+2. 画像 QA・3D QA は Qwen3-VL-32B（vLLM）で統一（8B は使用しない）。プロンプト生成は vLLM 不使用の組合せ生成
 3. Qwen3-VL-32B のThinkingモード：QA-1（画像検品）は `/no_think`、QA-2（3D検品）は `/think`
 4. 生成物の provenance（pass/review/reject）を必ず JSON で保存
-5. 出力先は HTML 記載の `outputs/` 配下に従う
+5. 出力先は `configs/pipeline_config.yaml` の `outputs/` 配下に従う
 6. 中断再開対応（既存ファイルスキップ）を全バッチ処理に実装する

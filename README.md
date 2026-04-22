@@ -152,7 +152,9 @@ DGX Spark でロードするモデル：
 | モデル | 用途 | メモリ使用量 |
 |--------|------|--------------|
 | FLUX.1-schnell | Text-to-Image 生成 | ~12GB |
-| Qwen3-VL-32B (vLLM) | プロンプト生成・画像検品・3D 検品（全タスク統一） | ~100GB |
+| Qwen3-VL-32B (vLLM) | 画像検品・3D 検品（QA 用途に統一） | ~100GB |
+
+> プロンプト生成は `configs/prompt_templates.yaml` / `luggage_categories.yaml` の組合せ生成のみで、vLLM / GPU を使用しません。
 
 > **Image-to-3D（Step 3）は本プロジェクトの対象範囲外です（別 PC で別プロジェクトとして実施）。
 > GLB を受け取って以降の QA・物理付与・エクスポートのみを本プロジェクトで担います。**
@@ -165,20 +167,22 @@ DGX Spark でロードするモデル：
 ## パイプライン構成
 
 ```
-Step 1: プロンプト生成  (Qwen3-VL-32B, /no_think)
+Step 1: プロンプト生成  (組合せ生成、GPU 不使用)
     ↓
-Step 2: 画像生成        (FLUX.1-schnell, 1024×1024, steps=4)
+Step 2: 画像生成        (FLUX.1-schnell, 1024×1024, steps=4, ランダムシード)
     ↓
 QA-1:  画像検品         (Qwen3-VL-32B, /no_think, realism≥7, integrity≥7)
     ↓
 Step 3: 3D 生成         ※ 本プロジェクトの対象範囲外（別 PC で実施、GLB を受け取る）
     ↓
 QA-2a: メッシュ QA      (Open3D + trimesh, ルールベース)
-QA-2b: VLM 3D 検品      (Qwen3-VL-32B, /think, geometry≥6, texture≥5)
+QA-2b: VLM 3D 検品      (Qwen3-VL-32B, /think,
+                        geometry≥6, texture≥5, consistency≥6, reality≥6)
     ↓
 Step 4: 物理プロパティ  (CoACD 凸分解 + material_properties.yaml)
     ↓
-Step 5: エクスポート    (Isaac Sim USD メタデータ)
+Step 5: エクスポート    (Isaac Sim USDA + メタデータ JSON。
+                        collisions Xform は visibility=invisible)
 ```
 
 ---
@@ -313,14 +317,16 @@ outputs/
 
 ```yaml
 generation:
-  prompt_generate_number: 100   # 生成するプロンプトの総数（category_weights の比率で割り当て）
+  prompt_generate_number: 20    # 生成するプロンプトの総数（category_weights の比率で割り当て）
+                                # 初回動作確認向けの既定値。本番は必要数に合わせて増やす
 
 models:
   vlm:
     base_url: "http://localhost:8001/v1"  # vLLM サーバーの URL
-    # model_name: vLLM serve 起動時と同じパスを指定する（~/は自動展開される）
-    # モデルを ~/models/ 以外に置く場合は絶対パスまたは ~/... で指定
-    model_name: "~/models/Qwen3-VL-32B-Instruct"
+    # model_name: vLLM serve 起動時と同じパスを指定する。
+    # vLLM は "~/" を自動展開しないため、ホームディレクトリ配下に置く場合も
+    # 絶対パスで指定する（scripts/start_vllm_server.sh も同じパスを使用）
+    model_name: "/home/ntt/models/Qwen3-VL-32B-Instruct"
 
 image_qa:
   thresholds:
@@ -331,6 +337,8 @@ mesh_vlm_qa:
   thresholds:
     geometry: 6     # 3D 形状品質閾値（1-10）
     texture: 5      # テクスチャ品質閾値（1-10）
+    consistency: 6  # 画像とのカテゴリ一貫性閾値（1-10）
+    reality: 6      # 実在感・現実性閾値（1-10）
 ```
 
 ### `configs/prompt_templates.yaml` — プロンプト・カテゴリ重み
@@ -401,6 +409,7 @@ scp -r user@dgx-spark:~/Airport3DAssetGenerator/al3dg/outputs/ ~/al3dg_outputs/
 | `outputs/reports/prompt_review.html` | プロンプト一覧・生成画像サムネイル |
 | `outputs/reports/image_qa_review.html` | 画像 QA 検品スコア・合否・サムネイル |
 | `outputs/reports/mesh_vlm_qa_review.html` | 3D 検品マルチビュー画像・スコア・問題点 |
+| `outputs/reports/physics_report.html` | 物理プロパティ付与結果（質量・摩擦・コリジョン数） |
 | `outputs/reports/pass_rate_report.html` | カテゴリ別合格率・推奨 `category_weights` |
 
 ### レポートのみ再生成（パイプライン再実行なし）
@@ -423,7 +432,7 @@ python scripts/generate_report.py --step pass_rate
 python scripts/backup_outputs.py
 ```
 
-バックアップ先: `outputs_backup/YYYYMMDD_HHMMSS/`
+バックアップ先: `outputs_backup/YYYY-MM-DD_HHMMSS/`
 
 ---
 
