@@ -6,9 +6,28 @@
 
 ---
 
+## 目次
+
+- [インストール](#インストール)
+- [前提条件](#前提条件)
+- [モデル構成](#モデル構成)
+- [パイプライン構成](#パイプライン構成)
+- [vLLM サーバー管理](#vllm-サーバー管理)
+- [パイプライン実行](#パイプライン実行)
+- [出力ディレクトリ構成](#出力ディレクトリ構成)
+- [設定ファイル](#設定ファイル)
+- [プロンプトの調整](#プロンプトの調整)
+- [カテゴリ別合格率の測定](#カテゴリ別合格率の測定)
+- [レポートの確認](#レポートの確認)
+- [バックアップ](#バックアップ)
+- [DGX Spark 運用上の注意点](#dgx-spark-運用上の注意点)
+
+---
+
 ## インストール
 
-> **事前確認**: インストールを始める前に「[前提条件](#前提条件)」セクションを必ず確認してください。
+> [!IMPORTANT]
+> インストールを始める前に「[前提条件](#前提条件)」セクションを必ず確認してください。
 
 ### Method A: GitHub + Hugging Face（オンライン）
 
@@ -88,13 +107,15 @@ docker compose run --rm al3dg python scripts/run_pipeline.py
 docker compose run --rm al3dg python scripts/run_step.py --step mesh_qa
 ```
 
-> **前提**: NVIDIA Container Toolkit インストール済み
+> [!NOTE]
+> NVIDIA Container Toolkit がインストール済みであること。
 > ```bash
 > sudo apt install nvidia-container-toolkit
 > sudo systemctl restart docker
 > ```
 
-> **注意**: `docker compose up` はデフォルトで `--help` を表示するだけです。
+> [!WARNING]
+> `docker compose up` はデフォルトで `--help` を表示するだけです。
 > 実際のパイプライン実行には `docker compose run --rm al3dg python scripts/run_pipeline.py` を使用してください。
 
 ---
@@ -152,7 +173,7 @@ DGX Spark でロードするモデル：
 | モデル | 用途 | メモリ使用量 |
 |--------|------|--------------|
 | FLUX.1-schnell | Text-to-Image 生成 | ~12GB |
-| Qwen3-VL-32B (vLLM) | 画像検品・3D 検品（QA 用途に統一） | ~100GB |
+| Qwen3-VL-32B (vLLM) | 画像 QA・マルチビュー 3D QA（QA 用途に統一） | ~100GB |
 
 > プロンプト生成は `configs/prompt_templates.yaml` / `luggage_categories.yaml` の組合せ生成のみで、vLLM / GPU を使用しません。
 
@@ -167,22 +188,22 @@ DGX Spark でロードするモデル：
 ## パイプライン構成
 
 ```
-Step 1: プロンプト生成  (組合せ生成、GPU 不使用)
+Step 1: プロンプト生成    (組合せ生成、GPU 不使用)
     ↓
-Step 2: 画像生成        (FLUX.1-schnell, 1024×1024, steps=4, ランダムシード)
+Step 2: 画像生成          (FLUX.1-schnell, 1024×1024, steps=4, ランダムシード)
     ↓
-QA-1:  画像検品         (Qwen3-VL-32B, /no_think, realism≥7, integrity≥7)
+QA-1:  画像 QA            (Qwen3-VL-32B, /no_think, realism≥7, integrity≥7)
     ↓
-Step 3: 3D 生成         ※ 本プロジェクトの対象範囲外（別 PC で実施、GLB を受け取る）
+Step 3: 3D 生成           ※ 本プロジェクトの対象範囲外（別 PC で実施、GLB を受け取る）
     ↓
-QA-2a: メッシュ QA      (Open3D + trimesh, ルールベース)
-QA-2b: VLM 3D 検品      (Qwen3-VL-32B, /think,
-                        geometry≥6, texture≥5, consistency≥6, reality≥6)
+QA-2a: メッシュ QA        (Open3D + trimesh, ルールベース)
+QA-2b: マルチビュー 3D QA (Qwen3-VL-32B, /think,
+                          geometry≥6, texture≥5, consistency≥6, reality≥6)
     ↓
-Step 4: 物理プロパティ  (CoACD 凸分解 + material_properties.yaml)
+Step 4: 物理プロパティ    (CoACD 凸分解 + material_properties.yaml)
     ↓
-Step 5: エクスポート    (Isaac Sim USDA + メタデータ JSON。
-                        collisions Xform は visibility=invisible)
+Step 5: エクスポート      (Isaac Sim USDA + メタデータ JSON。
+                          collisions Xform は visibility=invisible)
 ```
 
 ---
@@ -265,10 +286,10 @@ python scripts/run_step.py --step physics
 |-----------|---------|
 | `prompt` | プロンプト生成（組合せ生成） |
 | `image` | 画像生成（FLUX.1-schnell） |
-| `image_qa` | 画像検品（Qwen3-VL-32B） |
+| `image_qa` | 画像 QA（Qwen3-VL-32B） |
 | `mesh` | 3D メッシュ生成 — ※ 本プロジェクト対象外（別 PC で実施、スキップ可） |
-| `mesh_qa` | メッシュ品質チェック（trimesh + Open3D） |
-| `mesh_vlm_qa` | VLM マルチビュー 3D 検品（Qwen3-VL-32B） |
+| `mesh_qa` | メッシュ品質チェック（trimesh + Open3D、ルールベース） |
+| `mesh_vlm_qa` | マルチビュー 3D QA（Qwen3-VL-32B） |
 | `physics` | 物理プロパティ付与（CoACD 凸分解） |
 | `sim_export` | Isaac Sim USD エクスポートメタデータ生成 |
 
@@ -295,11 +316,11 @@ outputs/
 │       ├── physics.json                  # 物理プロパティ
 │       ├── <asset_id>.usda               # Isaac Sim USDA
 │       └── <asset_id>_usd_meta.json      # Isaac Sim USD エクスポートメタデータ
-├── renders/                              # VLM 3D 検品用マルチビューレンダリング画像
+├── renders/                              # マルチビュー 3D QA 用レンダリング画像
 ├── reports/
 │   ├── prompt_review.html                # プロンプト一覧・生成画像サムネイル（HTML）
-│   ├── image_qa_review.html              # 画像 QA 検品レポート（HTML）
-│   ├── mesh_vlm_qa_review.html           # 3D 検品レポート（HTML）
+│   ├── image_qa_review.html              # 画像 QA レポート（HTML）
+│   ├── mesh_vlm_qa_review.html           # マルチビュー 3D QA レポート（HTML）
 │   ├── pass_rate_report.html             # カテゴリ別合格率レポート（HTML）
 │   └── pass_rate_report.json            # カテゴリ別合格率サマリー（JSON）
 └── logs/                                 # 実行ログ
@@ -364,6 +385,97 @@ sampling:
 
 ---
 
+## プロンプトの調整
+
+本パイプラインには 3 種類のプロンプトがあり、それぞれ編集箇所と再実行方法が異なります。まず全体像を把握してから個別セクションに進んでください。
+
+| # | プロンプト | 役割 | 編集箇所 | 再実行ステップ |
+|---|-----------|------|----------|---------------|
+| ① | **画像生成プロンプト** | FLUX.1-schnell に渡す英文を組合せ生成する | `configs/prompt_templates.yaml` | `prompt` → `image` |
+| ② | **画像 QA プロンプト** | Qwen3-VL-32B が画像 QA 結果を JSON で返すための指示 | `src/image_qa.py`（モジュール定数） | `image_qa` |
+| ③ | **マルチビュー 3D QA プロンプト** | Qwen3-VL-32B がマルチビュー 3D QA 結果を JSON で返すための指示 | `src/mesh_vlm_qa.py`（モジュール定数） | `mesh_vlm_qa` |
+
+> [!TIP]
+> ① は YAML 編集のみで完結します。② ③ は Python ソースのモジュール定数を編集するだけで、再インストールや再ビルドは不要です。編集後、該当ステップだけを単体再実行すれば反映されます（`python scripts/run_step.py --step <ステップ名>`）。
+
+### ① 画像生成プロンプト（`configs/prompt_templates.yaml`）
+
+FLUX.1-schnell に渡す英文プロンプトは、YAML 内の属性軸（タイプ・色・材質・テクスチャ・スタイル・状態）を `src/prompt_generator.py` の `_build_prompt()` が組合せて生成します。vLLM / GPU は使用しません。
+
+**主な編集ポイント**
+
+| 目的 | 編集箇所 |
+|------|---------|
+| カテゴリを追加・削除 | `attributes.type.<カテゴリ>.<サブカテゴリ>` に英文フレーズを追加／削除<br>※ 同時に `sampling.category_weights` と `configs/luggage_categories.yaml`・`configs/material_properties.yaml` も更新 |
+| 色・材質・テクスチャ・スタイル・状態のバリエーションを増やす | `attributes.{color, material, texture, style, condition}` の各配列にフレーズを追加 |
+| カテゴリの生成比率を調整 | `sampling.category_weights`（合計 1.0） |
+| 特定カテゴリのサイズ比率を調整 | `sampling.subcategory_size_weights` |
+| 背景・照明・構図を一括変更 | `fixed.{prefix, bg_brief, lighting, view, quality}` |
+| カテゴリ固有の短い先頭フレーズを追加（CLIP 77 トークン枠の先頭に必ず届く） | `category_clip_prefix.<カテゴリ>`（例: ハンドル格納・バッグ閉鎖など QA-1 で弾かれやすい指示を優先） |
+
+**再実行**
+
+```bash
+# プロンプト再生成から画像 QA まで
+python scripts/run_pipeline.py --steps prompt image image_qa --no-resume
+```
+
+> [!WARNING]
+> FLUX.1-schnell は negative prompt に対応していません。`fixed.negative_hint` は空文字で固定し、変更しないでください。
+
+### ② 画像 QA プロンプト（`src/image_qa.py`）
+
+Qwen3-VL-32B への指示は `src/image_qa.py` の 2 つのモジュール定数にまとまっています。
+
+| 定数 | 役割 |
+|------|------|
+| `_SYSTEM_PROMPT` | モデルのロール指定（「checked baggage 条件を評価」「JSON のみ返す」等） |
+| `_USER_PROMPT_TEMPLATE` | 評価軸と JSON スキーマの定義。`{min_realism}` / `{min_integrity}` / `{min_coverage}` のプレースホルダには `configs/pipeline_config.yaml > image_qa.thresholds` の閾値が自動挿入される |
+
+**主な編集ポイント**
+
+| 目的 | 編集方法 |
+|------|---------|
+| 合格閾値のみ変えたい | `configs/pipeline_config.yaml > image_qa.thresholds` を編集（Python 側は触らない） |
+| 評価軸を追加・削除したい | `_USER_PROMPT_TEMPLATE` の JSON スキーマにキーを追加／削除し、`_validate_and_normalize()` と `_apply_defaults()` のロジックを対応させる |
+| 合否判定ロジックを変えたい | `_validate_and_normalize()` 内の `passed = (...)` 条件式を編集 |
+| モデルのロール指定・前提条件を変えたい | `_SYSTEM_PROMPT` を編集 |
+
+**再実行**
+
+```bash
+# 既存画像に対して画像 QA のみを再実行
+python scripts/run_step.py --step image_qa
+```
+
+> [!NOTE]
+> プロンプトは英語で記述されています（Qwen3-VL-32B は多言語対応ですが、英語のほうが JSON 整形精度が安定）。日本語化する場合は応答スキーマも日本語化し、`_parse_json_response()` の正規表現が追従できることを確認してください。
+
+### ③ マルチビュー 3D QA プロンプト（`src/mesh_vlm_qa.py`）
+
+構成は ② と同じで、モジュール定数 `_SYSTEM_PROMPT` / `_USER_PROMPT_TEMPLATE` を編集します。front / right / back / left の 4 方向レンダリングを入力とし、`geometry_score` / `texture_score` / `consistency_score` / `reality_score` の 4 軸で評価します。
+
+**主な編集ポイント**
+
+| 目的 | 編集方法 |
+|------|---------|
+| 合格閾値のみ変えたい | `configs/pipeline_config.yaml > mesh_vlm_qa.thresholds` を編集（Python 側は触らない） |
+| スコア軸を追加・削除したい | `_USER_PROMPT_TEMPLATE` の JSON スキーマを編集し、`_apply_defaults()` の閾値チェックを対応させる |
+| 評価基準の語り口を変えたい（例: 「AI-generated mesh 基準」を「プロ品質基準」に変えて厳しくする） | `_SYSTEM_PROMPT` と `_USER_PROMPT_TEMPLATE` の本文を書き換え |
+| 検品対象ビュー数を変えたい | `{n_views}` プレースホルダは呼び出し側のレンダラから自動挿入されるため、レンダラ側（ビュー数生成箇所）も合わせて変更 |
+
+**再実行**
+
+```bash
+# 既存メッシュに対してマルチビュー 3D QA のみを再実行
+python scripts/run_step.py --step mesh_vlm_qa
+```
+
+> [!TIP]
+> `reality_score` はテクスチャ品質を除外した「形状としての実在感」を問う軸です。TRELLIS 出力はテクスチャが不完全なことがあるため、形状だけで判定できる軸を別途用意しています。厳しくしすぎるとテクスチャの悪いメッシュが通ってしまうので、他の 3 軸と組合せて調整してください。
+
+---
+
 ## カテゴリ別合格率の測定
 
 **目的**: 本番の大量生成を開始する前に、カテゴリごとの通過率を小規模サンプルで測定し、
@@ -383,7 +495,8 @@ python scripts/measure_pass_rates.py --samples 5
 python scripts/measure_pass_rates.py --skip-pipeline
 ```
 
-> **注意**: 既存の `outputs/` が上書きされる。事前に `backup_outputs.py` でバックアップを取ること。
+> [!CAUTION]
+> 既存の `outputs/` が上書きされます。事前に `scripts/backup_outputs.py` でバックアップを取ってください。
 
 実行完了後、`outputs/reports/pass_rate_report.html` にカテゴリ別合格率と推奨 `category_weights` が表示される。
 
@@ -407,8 +520,8 @@ scp -r user@dgx-spark:~/Airport3DAssetGenerator/al3dg/outputs/ ~/al3dg_outputs/
 | レポート | 内容 |
 |---------|------|
 | `outputs/reports/prompt_review.html` | プロンプト一覧・生成画像サムネイル |
-| `outputs/reports/image_qa_review.html` | 画像 QA 検品スコア・合否・サムネイル |
-| `outputs/reports/mesh_vlm_qa_review.html` | 3D 検品マルチビュー画像・スコア・問題点 |
+| `outputs/reports/image_qa_review.html` | 画像 QA スコア・合否・サムネイル |
+| `outputs/reports/mesh_vlm_qa_review.html` | マルチビュー 3D QA スコア・レンダリング画像・問題点 |
 | `outputs/reports/physics_report.html` | 物理プロパティ付与結果（質量・摩擦・コリジョン数） |
 | `outputs/reports/pass_rate_report.html` | カテゴリ別合格率・推奨 `category_weights` |
 
