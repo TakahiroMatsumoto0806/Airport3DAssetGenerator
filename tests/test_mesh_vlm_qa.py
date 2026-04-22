@@ -31,30 +31,28 @@ from src.mesh_vlm_qa import (
 # ============================================================
 
 def _make_good_response() -> dict:
-    """合格スコアの VLM 応答"""
+    """合格スコアの VLM 応答（全閾値クリア）"""
     return {
-        "geometry_score": 8,
-        "texture_score": 7,
+        "geometry_score":    8,
+        "texture_score":     7,
         "consistency_score": 8,
-        "is_realistic_luggage": True,
-        "detected_type": "hard_suitcase",
+        "reality_score":     7,
+        "detected_type":     "hard_suitcase",
         "detected_material": "polycarbonate",
-        "issues": [],
-        "pass": True,
+        "issues":            [],
     }
 
 
 def _make_fail_response() -> dict:
-    """不合格スコアの VLM 応答"""
+    """不合格スコアの VLM 応答（geometry/texture/consistency/reality 不足）"""
     return {
-        "geometry_score": 4,
-        "texture_score": 3,
+        "geometry_score":    4,
+        "texture_score":     3,
         "consistency_score": 5,
-        "is_realistic_luggage": False,
-        "detected_type": "unknown",
+        "reality_score":     4,
+        "detected_type":     "unknown",
         "detected_material": "unknown",
-        "issues": ["broken geometry", "missing texture"],
-        "pass": False,
+        "issues":            ["broken geometry", "missing texture"],
     }
 
 
@@ -91,18 +89,40 @@ class TestApplyDefaults(unittest.TestCase):
         result = _apply_defaults({"geometry_score": 8, "texture_score": MIN_TEXTURE_SCORE - 1})
         self.assertFalse(result["pass"])
 
-    def test_pass_logic_both_above_threshold(self):
-        """geometry>=MIN_GEOMETRY_SCORE かつ texture>=MIN_TEXTURE_SCORE なら pass=True"""
-        result = _apply_defaults({"geometry_score": MIN_GEOMETRY_SCORE, "texture_score": MIN_TEXTURE_SCORE})
+    def test_pass_logic_all_above_threshold(self):
+        """全スコアが閾値以上なら pass=True"""
+        result = _apply_defaults({
+            "geometry_score": MIN_GEOMETRY_SCORE,
+            "texture_score": MIN_TEXTURE_SCORE,
+            "consistency_score": 6,
+            "reality_score": 6,
+        }, min_consistency=6, min_reality=6)
         self.assertTrue(result["pass"])
+
+    def test_pass_logic_consistency_below_threshold(self):
+        """consistency_score < 閾値なら pass=False"""
+        result = _apply_defaults({
+            "geometry_score": 8, "texture_score": 7,
+            "consistency_score": 5, "reality_score": 7,
+        }, min_consistency=6, min_reality=6)
+        self.assertFalse(result["pass"])
+
+    def test_pass_logic_reality_below_threshold(self):
+        """reality_score < 閾値なら pass=False"""
+        result = _apply_defaults({
+            "geometry_score": 8, "texture_score": 7,
+            "consistency_score": 7, "reality_score": 5,
+        }, min_consistency=6, min_reality=6)
+        self.assertFalse(result["pass"])
 
     def test_missing_fields_filled_with_defaults(self):
         """欠落フィールドにデフォルト値が補完されること"""
         result = _apply_defaults({})
         for key in ("geometry_score", "texture_score", "consistency_score",
-                    "is_realistic_luggage", "detected_type", "detected_material",
+                    "reality_score", "detected_type", "detected_material",
                     "issues", "pass"):
             self.assertIn(key, result)
+        self.assertNotIn("is_realistic_luggage", result)
 
     def test_issues_default_is_list(self):
         """issues のデフォルトは空リストであること"""
@@ -171,9 +191,10 @@ class TestEvaluate3D(unittest.TestCase):
         self.qa._client = self._mock_client(_make_good_response())
         result = self.qa.evaluate_3d(self.render_paths)
         for key in ("geometry_score", "texture_score", "consistency_score",
-                    "is_realistic_luggage", "detected_type", "detected_material",
+                    "reality_score", "detected_type", "detected_material",
                     "issues", "pass"):
             self.assertIn(key, result)
+        self.assertNotIn("is_realistic_luggage", result)
 
     def test_good_response_returns_pass_true(self):
         """合格スコアの応答で pass=True になること"""

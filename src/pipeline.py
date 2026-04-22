@@ -293,7 +293,13 @@ class AL3DGPipeline:
             model_name=str(Path(self.cfg.models.vlm.get(
                 "model_name", str(Path.home() / "models" / "Qwen3-VL-32B-Instruct")
             )).expanduser()),
-            thresholds=dict(qa_cfg.get("thresholds", {"geometry": 6, "texture": 5})),
+            thresholds=dict(qa_cfg.get("thresholds", {
+                "geometry": 6, "texture": 5, "consistency": 6, "reality": 6
+            })),
+        )
+
+        prompts_json = self.cfg.prompt_generation.get(
+            "output_file", "outputs/prompts/prompts.json"
         )
         result = qa.evaluate_batch(
             mesh_dir=mesh_dir,
@@ -301,6 +307,7 @@ class AL3DGPipeline:
             render_dir=qa_cfg.get("render_dir", "outputs/renders"),
             views=len(list(qa_cfg.get("azimuths", [0, 90, 180, 270]))),
             resume=resume,
+            prompts_json=prompts_json,
         )
 
         logger.info(
@@ -308,14 +315,14 @@ class AL3DGPipeline:
             f"不合格={result.get('failed')}"
         )
 
-        # mesh_vlm_qa_review.html 生成
         try:
             report_dir = Path(self.cfg.paths.get("reports_dir", "outputs/reports"))
             report_dir.mkdir(parents=True, exist_ok=True)
-            qa.generate_html_report(str(report_dir / "mesh_vlm_qa_review.html"))
-            logger.info(f"  3D QAレビュー: {report_dir / 'mesh_vlm_qa_review.html'}")
+            report_path = report_dir / "mesh_vlm_qa_review.html"
+            qa.generate_html_report(str(report_path), json_path=output_json)
+            logger.info(f"  Mesh VLM QA レポート: {report_path}")
         except Exception as e:
-            logger.warning(f"  mesh_vlm_qa_review.html 生成エラー: {e}")
+            logger.debug(f"  mesh_vlm_qa_review.html 生成スキップ: {e}")
 
         return result
 

@@ -73,15 +73,12 @@ Evaluate the mesh quality relative to AI-generated mesh standards and return a J
 {{
   "geometry_score": <int 1-10, 3D geometry quality: recognizable shape=5, clean topology=7, professional=10>,
   "texture_score": <int 1-10, texture/material quality: visible color/material=4, good UV=6, PBR realism=9>,
-  "consistency_score": <int 1-10, visual consistency across all views>,
-  "is_realistic_luggage": <true if the object is recognizable as luggage/bag, false otherwise>,
-  "detected_type": <string: best matching type, e.g. "hard_suitcase", "soft_suitcase", "backpack", "duffel_bag", "handbag">,
-  "detected_material": <string: primary material, e.g. "polycarbonate", "nylon", "leather", "fabric">,
-  "issues": <list of strings: critical problems only, empty list if acceptable>,
-  "pass": <true if geometry_score>=6 AND texture_score>=5>
+  "consistency_score": <int 1-10, visual consistency across all views: identical structure from all angles=10, minor inconsistencies=7, impossible back-side geometry=3>,
+  "reality_score": <int 1-10, how realistic this looks as actual checked airport luggage — evaluate SHAPE ONLY (ignore texture quality): do the proportions and 3D form from all 4 sides match what a real {expected_type} looks like? Consider correct proportions, plausible back/side structure, no impossible geometry. 1=alien/unrecognizable shape, 4=vaguely luggage-like, 6=plausible checked baggage, 8=convincing real luggage shape, 10=indistinguishable from real>,
+  "detected_type": <string: best matching type, e.g. "hard_suitcase", "soft_suitcase", "backpack", "duffel_bag", "cardboard_box">,
+  "detected_material": <string: choose ONE from this fixed list — "polycarbonate", "abs_plastic", "aluminum", "nylon", "polyester", "canvas", "cordura", "genuine_leather", "synthetic_leather", "cardboard" — pick whichever best matches the visible surface material>,
+  "issues": <list of strings: critical problems only — impossible geometry, severe deformation, completely wrong shape; empty list if acceptable>
 }}
-
-{expected_type_hint}
 
 Reply with only the JSON object."""
 
@@ -107,24 +104,31 @@ def _parse_json_response(text: str) -> dict:
         raise
 
 
-def _apply_defaults(result: dict, min_geometry: int = MIN_GEOMETRY_SCORE, min_texture: int = MIN_TEXTURE_SCORE) -> dict:
-    """欠落フィールドにデフォルト値を補完する"""
+def _apply_defaults(
+    result: dict,
+    min_geometry: int = MIN_GEOMETRY_SCORE,
+    min_texture: int = MIN_TEXTURE_SCORE,
+    min_consistency: int = 6,
+    min_reality: int = 6,
+) -> dict:
+    """欠落フィールドにデフォルト値を補完し、pass を Python 側で判定する"""
     defaults = {
-        "geometry_score": 1,
-        "texture_score": 1,
+        "geometry_score":    1,
+        "texture_score":     1,
         "consistency_score": 1,
-        "is_realistic_luggage": False,
-        "detected_type": "unknown",
+        "reality_score":     1,
+        "detected_type":     "unknown",
         "detected_material": "unknown",
-        "issues": [],
-        "pass": False,
+        "issues":            [],
     }
     for k, v in defaults.items():
         result.setdefault(k, v)
-    # pass を再計算（VLM の自己申告と閾値を両方満たす場合のみ）
+    # pass は Python 側で全閾値を比較して決定（VLM には pass フィールドを持たせない）
     result["pass"] = (
-        result["geometry_score"] >= min_geometry
+        result["geometry_score"]    >= min_geometry
         and result["texture_score"] >= min_texture
+        and result["consistency_score"] >= min_consistency
+        and result["reality_score"] >= min_reality
     )
     return result
 
@@ -157,12 +161,18 @@ class MeshVLMQA:
         self._user_prompt_template = user_prompt_template or _USER_PROMPT_TEMPLATE
 
         # 合格基準（設定ファイルから受け取ったものを優先、なければハードコード）
-        self._min_geometry_score = MIN_GEOMETRY_SCORE
-        self._min_texture_score = MIN_TEXTURE_SCORE
+        self._min_geometry_score     = MIN_GEOMETRY_SCORE
+        self._min_texture_score      = MIN_TEXTURE_SCORE
+        self._min_consistency_score  = 6
+        self._min_reality_score      = 6
+        self._last_output_json: Path | None = None
+        self._last_render_dir: Path | None = None
 
         if thresholds:
-            self._min_geometry_score = thresholds.get("geometry", self._min_geometry_score)
-            self._min_texture_score = thresholds.get("texture", self._min_texture_score)
+            self._min_geometry_score    = thresholds.get("geometry",    self._min_geometry_score)
+            self._min_texture_score     = thresholds.get("texture",     self._min_texture_score)
+            self._min_consistency_score = thresholds.get("consistency", self._min_consistency_score)
+            self._min_reality_score     = thresholds.get("reality",     self._min_reality_score)
 
     def _get_client(self):
         if self._client is None:
@@ -277,7 +287,15 @@ class MeshVLMQA:
             logger.warning(f"  JSON パース失敗: {e} — デフォルト値で置換")
             result = {}
 
-        return _apply_defaults(result, min_geometry=self._min_geometry_score, min_texture=self._min_texture_score)
+        result = _apply_defaults(
+            result,
+            min_geometry=self._min_geometry_score,
+            min_texture=self._min_texture_score,
+            min_consistency=self._min_consistency_score,
+            min_reality=self._min_reality_score,
+        )
+        result["prompt_sent"] = prompt_text
+        return result
 
     # ------------------------------------------------------------------
     # バッチ処理
@@ -291,6 +309,7 @@ class MeshVLMQA:
         views: int = 4,
         extensions: tuple[str, ...] = (".glb",),
         resume: bool = True,
+        prompts_json: Optional[str] = None,
     ) -> dict:
         """
         ディレクトリ内の全 GLB メッシュをマルチビュー VLM 評価する。
@@ -314,6 +333,21 @@ class MeshVLMQA:
         mesh_dir = Path(mesh_dir)
         output_json = Path(output_json)
         output_json.parent.mkdir(parents=True, exist_ok=True)
+        self._last_output_json = output_json
+
+        # prompts.json から {prompt_id: luggage_type} マップを構築
+        type_map: dict[str, str] = {}
+        if prompts_json and Path(prompts_json).exists():
+            try:
+                with open(prompts_json, encoding="utf-8") as f:
+                    for item in json.load(f):
+                        pid = item.get("metadata", {}).get("prompt_id", "")
+                        lt  = item.get("metadata", {}).get("luggage_type", "")
+                        if pid and lt:
+                            type_map[pid] = lt
+                logger.info(f"luggage_type マップ読み込み: {len(type_map)} 件")
+            except Exception as e:
+                logger.warning(f"prompts.json の読み込みに失敗: {e}")
 
         # 既存結果の読み込み（resume 用）
         existing: dict[str, dict] = {}
@@ -351,6 +385,7 @@ class MeshVLMQA:
 
         try:
             base_render_dir = Path(tmpdir_ctx.name if use_tmpdir else render_dir)
+            self._last_render_dir = base_render_dir
 
             for mesh_path in mesh_files:
                 key = str(mesh_path)
@@ -358,12 +393,20 @@ class MeshVLMQA:
                     continue
 
                 render_out = base_render_dir / mesh_path.stem
-                result_entry: dict = {"mesh_path": key}
+                # mesh ファイル名: "{idx:06d}_{prompt_id[:12]}" 形式。
+                # prompts.json の prompt_id はアンダースコア後半部分。
+                stem = mesh_path.stem
+                expected_type = type_map.get(stem)
+                if expected_type is None and "_" in stem:
+                    expected_type = type_map.get(stem.split("_", 1)[1])
+
+                result_entry: dict = {"mesh_path": key, "expected_type": expected_type}
 
                 try:
                     render_paths = self.render_multiview(str(mesh_path), str(render_out), views)
-                    eval_result = self.evaluate_3d(render_paths)
+                    eval_result = self.evaluate_3d(render_paths, expected_type=expected_type)
                     result_entry.update(eval_result)
+                    result_entry["expected_type"] = expected_type  # VLM応答で上書きされないよう再設定
 
                     if result_entry.get("pass"):
                         passed += 1
@@ -372,7 +415,13 @@ class MeshVLMQA:
 
                 except Exception as e:
                     logger.error(f"  VLM 評価失敗 ({mesh_path.name}): {e}")
-                    result_entry.update(_apply_defaults({}, min_geometry=self._min_geometry_score, min_texture=self._min_texture_score))
+                    result_entry.update(_apply_defaults(
+                        {},
+                        min_geometry=self._min_geometry_score,
+                        min_texture=self._min_texture_score,
+                        min_consistency=self._min_consistency_score,
+                        min_reality=self._min_reality_score,
+                    ))
                     result_entry["error"] = str(e)
                     failed += 1
 
@@ -382,13 +431,13 @@ class MeshVLMQA:
                 done = passed + failed
                 if done % 20 == 0 or done == total:
                     logger.info(f"  進捗: {done}/{total} (合格={passed}, 不合格={failed})")
-                    self._save_results(output_json, results, total, passed, failed, system_prompt_used=user_prompt_formatted)
+                    self._save_results(output_json, results, total, passed, failed, system_prompt_used=self._system_prompt)
 
         finally:
             if tmpdir_ctx:
                 tmpdir_ctx.cleanup()
 
-        self._save_results(output_json, results, total, passed, failed, system_prompt_used=user_prompt_formatted)
+        self._save_results(output_json, results, total, passed, failed, system_prompt_used=self._system_prompt)
         logger.info(f"VLM 3D 検品完了: 合格={passed}, 不合格={failed}")
 
         return {"total": total, "passed": passed, "failed": failed, "results": results}
@@ -412,28 +461,32 @@ class MeshVLMQA:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    def generate_html_report(self, output_path: str) -> None:
+    def generate_html_report(self, output_path: str, json_path: str | None = None) -> None:
         """
         3D 検品結果を HTML レポートとして生成する。
 
         テーブル構成:
-        | # | Asset | 送信プロンプト | View0 | View1 | View2 | View3 | Geo | Tex | Consistency | Issues | Pass |
+        | # | Asset | 送信プロンプト | View0 | View1 | View2 | View3 | Geo | Tex | Consistency | Reality | Issues | Pass |
 
         Args:
             output_path: HTML 保存先ファイルパス
+            json_path:   使用する vlm_qa_results.json のパス（省略時は自動検索）
         """
         from pathlib import Path
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 対応する vlm_qa_results.json を探す（output_path の命名規則から推測）
-        # output_path が outputs/reports/mesh_vlm_qa_review.html の場合
-        # → outputs/renders/vlm_qa_results.json または outputs/meshes_approved/vlm_qa_results.json を探す
-        results_json_paths = [
+        # json_path 明示指定 > evaluate_batch() の出力 > フォールバック
+        results_json_paths: list[Path] = []
+        if json_path is not None:
+            results_json_paths.append(Path(json_path))
+        if self._last_output_json is not None:
+            results_json_paths.append(self._last_output_json)
+        results_json_paths.extend([
             Path("outputs/renders/vlm_qa_results.json"),
             Path("outputs/meshes_approved/vlm_qa_results.json"),
-        ]
+        ])
 
         results_json_path = None
         for p in results_json_paths:
@@ -482,7 +535,8 @@ class MeshVLMQA:
         .reject-badge { background: #f8d7da; color: #721c24; padding: 4px 8px; border-radius: 3px; }
         .check { color: #27ae60; font-weight: bold; }
         .cross { color: #e74c3c; font-weight: bold; }
-        .prompt-cell { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+        td.prompt-col { max-width: 180px; width: 180px; }
+        .prompt-cell { display: inline-block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; vertical-align: middle; color: #2980b9; text-decoration: underline; }
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
         .modal.show { display: flex; align-items: center; justify-content: center; }
         .modal-content { background: white; padding: 20px; border-radius: 8px; max-width: 90%; max-height: 90%; overflow: auto; position: relative; }
@@ -495,6 +549,15 @@ class MeshVLMQA:
         .prompt-text { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; font-size: 11px; }
         .issues-list { margin: 10px 0; }
         .issue-item { background: #fff3cd; padding: 8px; margin: 5px 0; border-radius: 3px; border-left: 3px solid #f39c12; }
+        .controls { display: flex; gap: 16px; align-items: center; margin: 20px 0 10px; padding: 12px; background: #ecf0f1; border-radius: 5px; flex-wrap: wrap; }
+        .controls label { font-weight: 600; color: #2c3e50; font-size: 13px; }
+        .controls select, .controls button { padding: 6px 10px; font-size: 13px; border: 1px solid #bdc3c7; border-radius: 3px; background: white; cursor: pointer; }
+        .controls button:hover { background: #f0f0f0; }
+        .controls .count-info { margin-left: auto; color: #7f8c8d; font-size: 12px; }
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { background: #2c3e50; }
+        th.sortable .sort-indicator { font-size: 10px; margin-left: 4px; opacity: 0.5; }
+        th.sortable.sort-asc .sort-indicator, th.sortable.sort-desc .sort-indicator { opacity: 1; }
     </style>
     <script>
         function openModal(id) { document.getElementById(id).classList.add('show'); }
@@ -504,6 +567,73 @@ class MeshVLMQA:
                 event.target.classList.remove('show');
             }
         }
+
+        function applyFilter() {
+            const filter = document.getElementById('filter-pass').value;
+            const rows = document.querySelectorAll('#qa-table tbody tr');
+            let visible = 0;
+            rows.forEach(row => {
+                const pass = row.dataset.pass;
+                const show = (filter === 'all') || (filter === pass);
+                row.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            document.getElementById('visible-count').textContent = visible + ' / ' + rows.length;
+        }
+
+        let currentSort = { key: null, dir: null };
+        function sortBy(key) {
+            const tbody = document.querySelector('#qa-table tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            // 3-way toggle: none → desc → asc → none
+            let dir;
+            if (currentSort.key !== key) {
+                dir = 'desc';
+            } else if (currentSort.dir === 'desc') {
+                dir = 'asc';
+            } else if (currentSort.dir === 'asc') {
+                dir = null;
+            } else {
+                dir = 'desc';
+            }
+            currentSort = { key, dir };
+
+            // ヘッダー装飾を更新
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+                const ind = th.querySelector('.sort-indicator');
+                if (ind) ind.textContent = '⇅';
+            });
+
+            if (dir === null) {
+                // 元順序（data-idx 昇順）に戻す
+                rows.sort((a, b) => parseInt(a.dataset.idx) - parseInt(b.dataset.idx));
+            } else {
+                const th = document.querySelector('th.sortable[data-key="' + key + '"]');
+                th.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc');
+                const ind = th.querySelector('.sort-indicator');
+                if (ind) ind.textContent = dir === 'asc' ? '▲' : '▼';
+
+                rows.sort((a, b) => {
+                    const av = parseFloat(a.dataset[key]);
+                    const bv = parseFloat(b.dataset[key]);
+                    const aNaN = isNaN(av), bNaN = isNaN(bv);
+                    if (aNaN && bNaN) return 0;
+                    if (aNaN) return 1;   // 値なしは常に末尾
+                    if (bNaN) return -1;
+                    return dir === 'asc' ? av - bv : bv - av;
+                });
+            }
+            rows.forEach(r => tbody.appendChild(r));
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('filter-pass').addEventListener('change', applyFilter);
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.addEventListener('click', () => sortBy(th.dataset.key));
+            });
+            applyFilter();
+        });
     </script>
 </head>
 <body>
@@ -535,21 +665,46 @@ class MeshVLMQA:
         </div>
 """)
 
-        # テーブルヘッダー
+        # System Prompt（全 mesh 共通） — 折りたたみ表示
+        import html as _html_mod
+        system_prompt_text = payload.get("system_prompt_used") or self._system_prompt
+        html_parts.append(f"""
+        <details class="prompt-section" style="margin: 15px 0;">
+            <summary style="cursor:pointer;font-weight:600;color:#2c3e50">
+                🧠 System Prompt (common to all meshes)
+            </summary>
+            <pre class="prompt-text" style="margin-top:10px">{_html_mod.escape(system_prompt_text)}</pre>
+        </details>
+""")
+
+        # フィルター・ソート コントロール
         html_parts.append("""
-        <table>
+        <div class="controls">
+            <label for="filter-pass">Filter:</label>
+            <select id="filter-pass">
+                <option value="all">All</option>
+                <option value="true">Pass only</option>
+                <option value="false">Fail only</option>
+            </select>
+            <span class="count-info">Visible: <span id="visible-count">0 / 0</span></span>
+        </div>
+""")
+
+        # テーブルヘッダー（スコア列はクリックでソート）
+        html_parts.append("""
+        <table id="qa-table">
             <thead>
                 <tr>
                     <th>#</th>
-                    <th>Asset</th>
                     <th>Prompt Sent</th>
                     <th>View 0</th>
                     <th>View 1</th>
                     <th>View 2</th>
                     <th>View 3</th>
-                    <th>Geo</th>
-                    <th>Tex</th>
-                    <th>Consistency</th>
+                    <th class="sortable" data-key="geo">Geo<span class="sort-indicator">⇅</span></th>
+                    <th class="sortable" data-key="tex">Tex<span class="sort-indicator">⇅</span></th>
+                    <th class="sortable" data-key="consistency">Consistency<span class="sort-indicator">⇅</span></th>
+                    <th class="sortable" data-key="reality">Reality<span class="sort-indicator">⇅</span></th>
                     <th>Issues</th>
                     <th>Pass</th>
                 </tr>
@@ -562,15 +717,17 @@ class MeshVLMQA:
             mesh_path = result.get("mesh_path", "")
             asset_id = Path(mesh_path).stem if mesh_path else f"asset_{idx}"
             pass_bool = result.get("pass", False)
-            geo_score = result.get("geometry_score", "-")
-            tex_score = result.get("texture_score", "-")
+            geo_score   = result.get("geometry_score", "-")
+            tex_score   = result.get("texture_score", "-")
             consistency = result.get("consistency_score", "-")
-            issues = result.get("issues", [])
+            reality     = result.get("reality_score", "-")
+            issues      = result.get("issues", [])
 
             # プロンプト（展開可能）
             prompt_sent = result.get("prompt_sent", "")
             prompt_modal_id = f"modal_prompt_{idx}"
-            prompt_preview = prompt_sent[:40] + "..." if len(prompt_sent) > 40 else prompt_sent
+            prompt_flat = " ".join(prompt_sent.split())
+            prompt_preview = prompt_flat[:40] + "..." if len(prompt_flat) > 40 else prompt_flat
 
             prompt_modal = f"""
             <div id="{prompt_modal_id}" class="modal">
@@ -589,44 +746,46 @@ class MeshVLMQA:
 """
             html_parts.append(prompt_modal)
 
-            # ビュー画像を表示（render_dir から想定されるパスを構築）
-            # TRELLIS output では meshes_raw/asset_id.glb → renders/asset_id/view_*.png
-            # HTML 出力位置からの相対パスで埋め込む（他 PC でも動作するよう絶対パス禁止）
-            import os as _os
-            render_base_dir = Path("outputs/renders")
+            # ビュー画像を base64 埋め込みで表示（ローカルファイル制限を回避）
+            # render_multiview() は {asset_id}_{view_idx}.png として保存する
+            import base64 as _b64
+            render_base_dir = self._last_render_dir or Path("outputs/renders")
             view_htmls = []
             for view_idx in range(4):
-                view_path = render_base_dir / asset_id / f"view_{view_idx}.png"
+                view_path = render_base_dir / asset_id / f"{asset_id}_{view_idx}.png"
                 if view_path.exists():
-                    try:
-                        rel_src = _os.path.relpath(
-                            view_path.resolve(), start=output_path.parent.resolve()
-                        ).replace("\\", "/")
-                    except ValueError:
-                        rel_src = str(view_path)
+                    b64_data = _b64.b64encode(view_path.read_bytes()).decode()
+                    src = f"data:image/png;base64,{b64_data}"
                     view_modal_id = f"modal_view_{idx}_{view_idx}"
-                    view_htmls.append(f'<img src="{rel_src}" class="thumb" onclick="openModal(\'{view_modal_id}\')">')
+                    view_htmls.append(f'<img src="{src}" class="thumb" onclick="openModal(\'{view_modal_id}\')">')
 
                     view_modal = f"""
             <div id="{view_modal_id}" class="modal">
                 <div class="modal-content">
                     <span class="modal-close" onclick="closeModal('{view_modal_id}')">&times;</span>
-                    <img src="{rel_src}" style="max-width: 80vw; max-height: 80vh; border-radius: 5px;">
+                    <img src="{src}" style="max-width: 80vw; max-height: 80vh; border-radius: 5px;">
                 </div>
             </div>
 """
                     html_parts.append(view_modal)
                 else:
-                    view_htmls.append("—")
+                    view_htmls.append("<span style='color:#aaa'>—</span>")
 
+            import html as _html
             pass_badge = f'<span class="pass-badge">✓ Pass</span>' if pass_bool else '<span class="reject-badge">✗ Fail</span>'
-            issues_summary = f"{len(issues)} issues" if issues else "OK"
+            if issues:
+                items = "".join(f"<li>{_html.escape(str(i))}</li>" for i in issues)
+                issues_cell = f"<ul style='margin:0;padding-left:1.2em;font-size:0.85em;color:#721c24'>{items}</ul>"
+            else:
+                issues_cell = "<span style='color:#27ae60'>—</span>"
+
+            def _as_data_attr(v):
+                return str(v) if isinstance(v, (int, float)) else ""
 
             html_parts.append(f"""
-                <tr>
+                <tr data-idx="{idx}" data-pass="{'true' if pass_bool else 'false'}" data-geo="{_as_data_attr(geo_score)}" data-tex="{_as_data_attr(tex_score)}" data-consistency="{_as_data_attr(consistency)}" data-reality="{_as_data_attr(reality)}">
                     <td>{idx}</td>
-                    <td>{asset_id}</td>
-                    <td><span class="prompt-cell" onclick="openModal('{prompt_modal_id}')" title="{prompt_sent}">{prompt_preview}</span></td>
+                    <td class="prompt-col"><span class="prompt-cell" onclick="openModal('{prompt_modal_id}')" title="クリックで全文表示">{prompt_preview}</span></td>
                     <td>{view_htmls[0] if len(view_htmls) > 0 else "—"}</td>
                     <td>{view_htmls[1] if len(view_htmls) > 1 else "—"}</td>
                     <td>{view_htmls[2] if len(view_htmls) > 2 else "—"}</td>
@@ -634,7 +793,8 @@ class MeshVLMQA:
                     <td>{geo_score}</td>
                     <td>{tex_score}</td>
                     <td>{consistency}</td>
-                    <td>{issues_summary}</td>
+                    <td>{reality}</td>
+                    <td>{issues_cell}</td>
                     <td>{pass_badge}</td>
                 </tr>
 """)

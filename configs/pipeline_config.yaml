@@ -107,8 +107,10 @@ mesh_vlm_qa:
   output_dir: "outputs/meshes_approved"
   render_dir: "outputs/renders"
   thresholds:
-    geometry: 6
-    texture: 5
+    geometry:    6
+    texture:     5
+    consistency: 6
+    reality:     6
   thinking_mode: true    # /think
   azimuths: [0, 90, 180, 270]
   render_size: [512, 512]
