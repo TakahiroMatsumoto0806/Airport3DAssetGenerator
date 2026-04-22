@@ -171,6 +171,16 @@ class TestUSDAGeneration(unittest.TestCase):
         content = usda_path.read_text(encoding="utf-8")
         self.assertIn('def Xform "collisions"', content)
 
+    def test_usda_collisions_invisible(self):
+        """コリジョン Xform に visibility = invisible が付与されること"""
+        asset_dir = _make_asset_dir(self.tmpdir)
+        self.exporter.export_usd_metadata(str(asset_dir), self.tmpdir)
+        asset_id = asset_dir.name
+        usda_path = Path(self.tmpdir) / f"{asset_id}.usda"
+        content = usda_path.read_text(encoding="utf-8")
+        self.assertIn('def Xform "collisions"', content)
+        self.assertIn('token visibility = "invisible"', content)
+
     def test_usda_contains_physics_mass(self):
         """USDA に physics.json の mass_kg が反映されること"""
         asset_dir = _make_asset_dir(self.tmpdir)

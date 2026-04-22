@@ -146,6 +146,7 @@ class SimExporter:
             "\n"
             '    def Xform "collisions"\n'
             "    {\n"
+            '        token visibility = "invisible"\n'
             f"{collisions_section}\n"
             "    }\n"
             "}\n"
