@@ -17,6 +17,7 @@
 - [出力ディレクトリ構成](#出力ディレクトリ構成)
 - [設定ファイル](#設定ファイル)
 - [プロンプトの調整](#プロンプトの調整)
+- [物理プロパティの調整](#物理プロパティの調整)
 - [カテゴリ別合格率の測定](#カテゴリ別合格率の測定)
 - [レポートの確認](#レポートの確認)
 - [バックアップ](#バックアップ)
@@ -476,6 +477,168 @@ python scripts/run_step.py --step mesh_vlm_qa
 
 ---
 
+## 物理プロパティの調整
+
+> [!NOTE]
+> 物理プロパティ（材質・サイズ・質量・摩擦・反発係数）は [configs/material_properties.yaml](configs/material_properties.yaml) で一元管理し、[src/physics_processor.py](src/physics_processor.py) と [src/scale_normalizer.py](src/scale_normalizer.py) が実行時に読み込みます。**コードを触らず YAML 編集だけで挙動を変えられる**設計です。
+
+### 関連ファイル
+
+| ファイル | 役割 |
+|---|---|
+| [configs/material_properties.yaml](configs/material_properties.yaml) | 材質定義・カテゴリ→材質マッピング・ミニチュアスケール設定 |
+| [src/physics_processor.py](src/physics_processor.py) | 材質解決・ランダム化・質量計算・CoACD コリジョン生成 |
+| [src/scale_normalizer.py](src/scale_normalizer.py) | Franka グリッパー想定のスケール正規化 |
+| [src/mesh_vlm_qa.py](src/mesh_vlm_qa.py) | VLM が `detected_material` を出力するプロンプト定義 |
+
+---
+
+### 推定材質の定義と決定方法
+
+材質は「VLM 検出 → カテゴリデフォルト → 最終フォールバック」の **3 段階**で決定されます（[src/physics_processor.py:67-78](src/physics_processor.py#L67-L78) `_resolve_material()`）。
+
+```
+VLM 検出 (detected_material)
+    ├─ materials: に存在 ──────────→ 採用
+    └─ "unknown" / 未定義 ─┐
+                          ↓
+       category_material_mapping[luggage_type]
+                          ├─ 存在 ──→ 採用
+                          └─ なし ──→ "polycarbonate" (最終フォールバック)
+```
+
+- **材質候補の定義元**: `materials:` 配下の各キー（現在 14 種）。各エントリが `density_kg_m3` / `static_friction` / `dynamic_friction` / `restitution` / `randomize_range` を持つ
+- **VLM による検出**: マルチビュー 3D QA 時に Qwen3-VL-32B が `detected_material` を以下の 10 候補から 1 つ選ぶ（[src/mesh_vlm_qa.py:78-79](src/mesh_vlm_qa.py#L78-L79)）
+  - `polycarbonate` / `abs_plastic` / `aluminum` / `nylon` / `polyester` / `canvas` / `cordura` / `genuine_leather` / `synthetic_leather` / `cardboard`
+- **カテゴリデフォルト**: VLM が `"unknown"` を返した場合に [configs/material_properties.yaml](configs/material_properties.yaml) の `category_material_mapping` を参照（例: `hard_suitcase → polycarbonate`、`backpack → nylon`）
+
+> [!NOTE]
+> VLM の 10 候補は YAML の 14 材質の**部分集合**です。`polypropylene` / `fiberglass` / `nonwoven_fabric` / `steel` は現状 VLM からは選ばれず、カテゴリマッピング経由でのみ採用されます。
+
+---
+
+### 新規材質を追加する
+
+**3 ステップ**で完結します（コード変更不要）。
+
+**Step 1 — `materials:` へ材質エントリを追記**
+
+[configs/material_properties.yaml](configs/material_properties.yaml) に以下の形で追記します。
+
+```yaml
+materials:
+  # ... 既存材質 ...
+
+  kevlar:                              # ← 材質キー（英小文字・スネークケース）
+    display_name: "ケブラー"
+    density_kg_m3: 1440
+    density_range: [1400, 1480]        # 参考値（コード参照なし・ドキュメント用途）
+    static_friction: 0.40
+    dynamic_friction: 0.33
+    restitution: 0.10
+    randomize_range: 0.12              # 省略時は defaults.randomize_range (0.15)
+    notes: "高強度ケース用。軽量で剛性高い。"
+```
+
+**Step 2 — カテゴリデフォルトに紐付け（任意）**
+
+VLM が該当材質を検出できないカテゴリでも自動適用したい場合、`category_material_mapping` を更新します。
+
+```yaml
+category_material_mapping:
+  hard_case: kevlar     # abs_plastic → kevlar に変更
+```
+
+**Step 3 — VLM 検出候補に追加する（任意）**
+
+VLM 自身に新材質を選ばせたい場合のみ、[src/mesh_vlm_qa.py:78-79](src/mesh_vlm_qa.py#L78-L79) の `detected_material` 列挙リストへ追加します（**本ステップはコード変更を伴う唯一の箇所**）。
+
+> [!IMPORTANT]
+> Step 1 のキー名と VLM 列挙・カテゴリマッピングの値は**完全一致**させてください。不一致の場合、`_resolve_material()` は "未定義" と判定し `polycarbonate` にフォールバックします。
+
+---
+
+### サイズ（ミニチュアスケール）を変更する
+
+メッシュは Franka グリッパー（最大開口 80 mm）で把持可能なサイズへ自動縮小されます。
+設定は [configs/material_properties.yaml](configs/material_properties.yaml) の `miniature_scale:` セクション。
+
+| キー | 意味 | デフォルト | 編集時の注意 |
+|------|------|-----------|-------------|
+| `enabled` | スケール正規化の有効/無効 | `true` | `false` にすると原寸出力 |
+| `target_short_side_mm` | 短辺がここ以下になる | `60.0` | グリッパー開口 80 mm に対する安全マージン込み |
+| `max_long_side_mm` | 長辺がここ以下になる | `120.0` | 荷物コンベアを想定した最大長 |
+| `preserve_aspect_ratio` | アスペクト比固定 | `true` | `false` は非推奨（物理挙動が歪む） |
+
+**スケール係数の計算**（[src/scale_normalizer.py](src/scale_normalizer.py)）
+
+```
+scale_by_short = target_short_side_mm / 元メッシュの短辺 (mm)
+scale_by_long  = max_long_side_mm     / 元メッシュの長辺 (mm)
+scale_factor   = min(scale_by_short, scale_by_long)   # 両制約のうち厳しい方
+```
+
+> [!TIP]
+> スケールを倍に変えたい場合は `target_short_side_mm: 60.0 → 120.0` と `max_long_side_mm: 120.0 → 240.0` を**両方**変更してください。片方だけ変えると `min()` で制約される側が勝ってしまい、期待通りに大きくなりません。
+
+---
+
+### 重量・密度・摩擦・反発係数の決定方法
+
+| 物理量 | 決定方法 | 実装 |
+|--------|---------|------|
+| **密度** `density_kg_m3` | YAML 指定値（必要に応じてランダム化） | [physics_processor.py:206](src/physics_processor.py#L206) |
+| **体積** `volume_m3` | watertight メッシュ: `trimesh.volume`<br>不成立時: `convex_hull.volume`（フォールバック） | [physics_processor.py:218-221](src/physics_processor.py#L218-L221) |
+| **質量** `mass_kg` | `density × volume`（スケール正規化後のメッシュで計算） | [physics_processor.py:223](src/physics_processor.py#L223) |
+| **静止摩擦** `static_friction` | YAML 指定値（必要に応じてランダム化） | [physics_processor.py:207](src/physics_processor.py#L207) |
+| **動摩擦** `dynamic_friction` | YAML 指定値（必要に応じてランダム化） | [physics_processor.py:208](src/physics_processor.py#L208) |
+| **反発係数** `restitution` | YAML 指定値（必要に応じてランダム化） | [physics_processor.py:209](src/physics_processor.py#L209) |
+
+**ランダム化の仕組み**
+
+```
+ランダム化後の値 ∈ [ value − value × rr,  value + value × rr ]   # 一様分布
+```
+
+ここで `rr` は `materials.<name>.randomize_range`（未指定時は `defaults.randomize_range = 0.15`）。
+
+例: `density_kg_m3 = 1200`, `rr = 0.15` の場合、`[1020, 1380]` の一様分布からサンプリングされる。
+
+> [!NOTE]
+> 乱数は `PhysicsProcessor(seed=42)` で初期化された `random.Random` から供給されます。**seed を固定している限り実行結果は完全に再現**されます（[physics_processor.py:58](src/physics_processor.py#L58)）。
+
+---
+
+### パラメータ調整のガイド
+
+| 目的 | 編集箇所 |
+|------|---------|
+| 特定材質の値を変える | `materials.<name>.<prop>` を直接編集 |
+| 変動幅を材質ごとに変える | `materials.<name>.randomize_range` |
+| 変動幅の全体デフォルトを変える | `defaults.randomize_range` |
+| 変動を完全に止めて決定論的にする | `randomize_range: 0.0`（または `process_batch(randomize=False)` で呼び出す） |
+| カテゴリの既定材質を入れ替える | `category_material_mapping.<luggage_type>` |
+| 出力アセットのサイズ帯を変える | `miniature_scale.target_short_side_mm` / `max_long_side_mm` |
+
+**変更後の再実行**
+
+```bash
+# 物理プロパティ付与ステップのみを再実行（画像生成・3D 生成はスキップ）
+python scripts/run_step.py --step physics
+```
+
+> [!WARNING]
+> 物理的に不合理な値は避けてください。
+> - `density_kg_m3` は正の値（空気密度 ≈ 1.2, 水 ≈ 1000, 鉄 ≈ 7800 が目安）
+> - `static_friction ≥ dynamic_friction` が物理法則上の原則
+> - `restitution` は `[0.0, 1.0]` の範囲（0 = 完全非弾性、1 = 完全弾性）
+> - `randomize_range` は通常 `[0.0, 0.30]` 程度。過大にすると負の密度を生む可能性あり
+
+> [!TIP]
+> 新規カテゴリの値を決める際は、まず近い既存材質の値をコピーし、`notes:` に「何を参考にしたか」を書き残すと後からの調整が楽になります。`density_range:` 列はコードからは参照されていませんが、レビュー時の根拠として記録に残す運用です。
+
+---
+
 ## カテゴリ別合格率の測定
 
 **目的**: 本番の大量生成を開始する前に、カテゴリごとの通過率を小規模サンプルで測定し、
@@ -504,18 +667,46 @@ python scripts/measure_pass_rates.py --skip-pipeline
 
 ## レポートの確認
 
-DGX Spark はヘッドレスサーバーのため、`open` コマンドは使用できません。
-ローカル PC のブラウザからアクセスするには以下のいずれかの方法を使用してください。
+レポートは HTML ファイルとして `outputs/reports/` に出力されます。
+
+### 基本: DGX Spark 上のブラウザで直接開く
+
+DGX Spark にキーボード・マウス・ディスプレイを接続している前提で、
+ファイルマネージャから HTML ファイルをダブルクリックして **Firefox / Chrome で直接開く**のが最短です。
+
+```
+outputs/reports/prompt_review.html        ← ダブルクリックで Firefox / Chrome が開く
+outputs/reports/image_qa_review.html
+outputs/reports/mesh_vlm_qa_review.html
+outputs/reports/physics_report.html
+outputs/reports/pass_rate_report.html
+```
+
+コマンドラインから明示的に開く場合は以下のいずれかでも可。
 
 ```bash
-# 方法 1: HTTP サーバーを起動してブラウザアクセス（推奨）
+firefox outputs/reports/prompt_review.html
+# または
+google-chrome outputs/reports/prompt_review.html
+# または（デフォルトブラウザで開く）
+xdg-open outputs/reports/prompt_review.html
+```
+
+### フォールバック: 別 PC のブラウザからアクセスする場合
+
+DGX Spark に GUI が接続されていない運用（ヘッドレス・SSH のみ）では、以下のいずれかを使用してください。
+
+```bash
+# 方法 1: HTTP サーバーを起動してローカル PC のブラウザからアクセス
 python3 -m http.server 8080 --directory outputs/
 # → ローカル PC のブラウザで http://<DGX-Spark-IP>:8080/reports/ を開く
 
-# 方法 2: ローカル PC に scp でコピー
+# 方法 2: ローカル PC に scp でコピーしてから開く
 scp -r user@dgx-spark:~/Airport3DAssetGenerator/al3dg/outputs/ ~/al3dg_outputs/
 # → ローカル PC のブラウザで al3dg_outputs/reports/prompt_review.html を開く
 ```
+
+### レポート一覧
 
 | レポート | 内容 |
 |---------|------|
