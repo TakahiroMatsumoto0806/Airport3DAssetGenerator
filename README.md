@@ -18,7 +18,7 @@
 - [設定ファイル](#設定ファイル)
 - [プロンプトの調整](#プロンプトの調整)
 - [物理プロパティの調整](#物理プロパティの調整)
-- [カテゴリ別合格率の測定](#カテゴリ別合格率の測定)
+- [カテゴリ別合格率の測定（参考）](#カテゴリ別合格率の測定参考)
 - [レポートの確認](#レポートの確認)
 - [バックアップ](#バックアップ)
 - [DGX Spark 運用上の注意点](#dgx-spark-運用上の注意点)
@@ -639,13 +639,18 @@ python scripts/run_step.py --step physics
 
 ---
 
-## カテゴリ別合格率の測定
+## カテゴリ別合格率の測定（参考）
 
-**目的**: 本番の大量生成を開始する前に、カテゴリごとの通過率を小規模サンプルで測定し、
-`configs/prompt_templates.yaml` の `category_weights` を最適化する。
+> [!NOTE]
+> 本セクションは **参考** です。通常のパイプライン実行には不要で、
+> 「最終生成されたアセットのカテゴリ分布が期待どおりの割合にならない」ときだけ使ってください。
 
-各カテゴリの画像 QA 通過率にばらつきがあるため、通過率の低いカテゴリの重みを下げて
-最終アセットの分布が目標比率に近くなるよう調整する。
+**使用タイミング**: パイプライン完走後、[outputs/reports/pass_rate_report.html](outputs/reports/pass_rate_report.html) や
+`outputs/assets_final/` のカテゴリ別アセット数を確認し、目標比率から乖離している場合に実施します。
+
+**仕組み**: カテゴリごとに QA 通過率が異なるため、生成枚数が同じでも最終アセット数は揃いません。
+本スクリプトは小規模サンプルで通過率を測定し、`configs/prompt_templates.yaml` の
+`category_weights` を**通過率の逆数で重み付け**することで、最終分布を目標比率へ近づけます。
 
 ```bash
 # 20 枚/カテゴリで測定（精度 ±22%、推奨スケール）
@@ -661,7 +666,8 @@ python scripts/measure_pass_rates.py --skip-pipeline
 > [!CAUTION]
 > 既存の `outputs/` が上書きされます。事前に `scripts/backup_outputs.py` でバックアップを取ってください。
 
-実行完了後、`outputs/reports/pass_rate_report.html` にカテゴリ別合格率と推奨 `category_weights` が表示される。
+実行完了後、`outputs/reports/pass_rate_report.html` にカテゴリ別合格率と推奨 `category_weights` が表示されます。
+表示された値を `configs/prompt_templates.yaml` に反映し、次回の本番生成で分布を再確認してください。
 
 ---
 
