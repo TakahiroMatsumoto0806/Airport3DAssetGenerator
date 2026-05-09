@@ -714,13 +714,19 @@ scp -r user@dgx-spark:~/Airport3DAssetGenerator/al3dg/outputs/ ~/al3dg_outputs/
 
 ### レポート一覧
 
-| レポート | 内容 |
-|---------|------|
-| `outputs/reports/prompt_review.html` | プロンプト一覧・生成画像サムネイル |
-| `outputs/reports/image_qa_review.html` | 画像 QA スコア・合否・サムネイル |
-| `outputs/reports/mesh_vlm_qa_review.html` | マルチビュー 3D QA スコア・レンダリング画像・問題点 |
-| `outputs/reports/physics_report.html` | 物理プロパティ付与結果（質量・摩擦・コリジョン数） |
-| `outputs/reports/pass_rate_report.html` | カテゴリ別合格率・推奨 `category_weights` |
+| レポート | 内容 | 生成タイミング |
+|---------|------|---------------|
+| `outputs/reports/prompt_review.html` | プロンプト一覧・生成画像サムネイル | `run_pipeline.py`（プロンプト生成・画像生成ステップ） |
+| `outputs/reports/image_qa_review.html` | 画像 QA スコア・合否・サムネイル | `run_pipeline.py`（画像 QA ステップ） |
+| `outputs/reports/mesh_vlm_qa_review.html` | マルチビュー 3D QA スコア・レンダリング画像・問題点 | `run_pipeline.py`（マルチビュー 3D QA ステップ） |
+| `outputs/reports/physics_report.html` | 物理プロパティ付与結果（質量・摩擦・コリジョン数） | `run_pipeline.py`（物理プロパティステップ） |
+| `outputs/reports/pass_rate_report.html` | カテゴリ別合格率・推奨 `category_weights` | **`run_pipeline.py` では生成されません**。<br>`scripts/measure_pass_rates.py` を別途実行してください |
+
+> [!IMPORTANT]
+> `pass_rate_report.html` だけは **通常のパイプライン実行（`python scripts/run_pipeline.py`）では出力されません**。
+> このレポートはカテゴリ分布を調整するための参考ツールが生成するもので、
+> 「[カテゴリ別合格率の測定（参考）](#カテゴリ別合格率の測定参考)」セクションに従い `scripts/measure_pass_rates.py` を実行したときのみ出力されます。
+> 通常運用では生成されないことが正常です。
 
 ### レポートのみ再生成（パイプライン再実行なし）
 
