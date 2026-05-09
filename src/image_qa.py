@@ -625,7 +625,11 @@ class ImageQA:
             json.dump(payload, f, ensure_ascii=False, indent=2)
         return payload
 
-    def generate_html_report(self, output_path: str) -> None:
+    def generate_html_report(
+        self,
+        output_path: str,
+        results_json: str | None = None,
+    ) -> None:
         """
         評価結果を HTML レポートとして生成する。
 
@@ -634,13 +638,17 @@ class ImageQA:
 
         Args:
             output_path: HTML 保存先ファイルパス
+            results_json: evaluate_batch が出力した結果 JSON のパス。
+                未指定時は `outputs/images_approved/image_qa_results.json` を参照する。
         """
         import html as _html
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        results_json_path = Path("outputs/images_approved/image_qa_results.json")
+        results_json_path = Path(
+            results_json or "outputs/images_approved/image_qa_results.json"
+        )
         if not results_json_path.exists():
             logger.warning(f"結果 JSON が見つかりません: {results_json_path}")
             return

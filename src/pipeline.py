@@ -241,7 +241,10 @@ class AL3DGPipeline:
         try:
             report_dir = Path(self.cfg.paths.get("reports_dir", "outputs/reports"))
             report_dir.mkdir(parents=True, exist_ok=True)
-            qa.generate_html_report(str(report_dir / "image_qa_review.html"))
+            qa.generate_html_report(
+                str(report_dir / "image_qa_review.html"),
+                results_json=output_json,
+            )
             logger.info(f"  画像QAレビュー: {report_dir / 'image_qa_review.html'}")
         except Exception as e:
             logger.warning(f"  image_qa_review.html 生成エラー: {e}")
