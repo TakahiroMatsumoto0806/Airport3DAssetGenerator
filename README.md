@@ -139,6 +139,35 @@ docker compose run --rm al3dg python scripts/run_step.py --step mesh_qa
 | ネットワーク | Method A: Hugging Face へのアクセス / Method B: 共有ドライブ or SCP |
 | ポート 8001 | vLLM サーバー用（他プロセスと競合しないこと） |
 
+> [!IMPORTANT]
+> **sudo パスワード入力ができない環境（CI / 自動化スクリプト / ターミナルが TTY を持たないケース）でセットアップする場合**:
+> 事前に `sudo -v` でセッションキャッシュを取得しておくか、セットアップ中だけ
+> `/etc/sudoers.d/` に NOPASSWD を一時設定してください（終了後は必ず削除）。
+> ```bash
+> # セットアップ中だけ NOPASSWD を有効化
+> echo "${USER} ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/al3dg-temp
+> sudo chmod 0440 /etc/sudoers.d/al3dg-temp
+>
+> # ── ここで bash scripts/setup_environment.sh など ──
+>
+> # セットアップ後に必ず削除
+> sudo rm /etc/sudoers.d/al3dg-temp
+> ```
+
+> [!NOTE]
+> **aarch64（DGX Spark）の PyTorch wheel について**:
+> PyPI 標準の `torch` wheel は aarch64 では **CPU 専用**です。`setup_environment.sh` は
+> `uname -m` でアーキを判定し、**aarch64 では `cu129`、x86_64 では `cu128`** の専用
+> index から CUDA 対応 wheel を自動取得します。**手動で `uv pip install torch` を実行
+> すると CPU 版に置換されるため、必ず `setup_environment.sh` 経由で導入してください**。
+
+> [!NOTE]
+> **ヘッドレスレンダリング（OSMesa）について**:
+> `mesh_vlm_qa` ステップは `pyrender + OSMesa` を使うため、Python プロセスに
+> `PYOPENGL_PLATFORM=osmesa` が渡る必要があります。`run_pipeline.py` は起動時に
+> この環境変数を自動設定するので通常は意識不要ですが、評価モジュールを自前で
+> 呼び出す場合は明示的に `export PYOPENGL_PLATFORM=osmesa` を実行してください。
+
 ### Hugging Face アカウント（Method A のみ）
 
 1. [Hugging Face](https://huggingface.co) にアカウント登録
@@ -764,6 +793,19 @@ DGX Spark は 128GB 統合メモリ。**モデルを同時にロードしない*
 | FLUX.1-schnell（~12GB） | vLLM サーバー |
 
 `run_pipeline.py` はこの切り替えを自動管理します。`run_step.py` で個別実行する場合は上記制約を手動で守ってください。
+
+### 統合メモリ / page cache とのつき合い方
+
+DGX Spark は **128GB を CPU/GPU で共有する統合メモリ構成**です。
+ファイルキャッシュ（buff/cache）として OS が確保しているメモリは vLLM の
+`--gpu-memory-utilization` 判定で「使用中」とみなされるため、FLUX.1 で大きな
+モデルを読み込んだ直後に vLLM を起動すると `Free memory on device < desired GPU memory utilization`
+で起動失敗することがあります。
+
+- `start_vllm_server.sh` のデフォルトは `--gpu-memory-utilization 0.85` に設定済み
+  （`VLLM_GPU_UTIL` 環境変数で上書き可能。0.90 にすると DGX Spark では OOM のリスクあり）
+- それでも詰まる場合は **`sudo sysctl vm.drop_caches=3` で page cache を解放**してから再起動
+- `run_pipeline.py` は FLUX.1 → vLLM 切替時に `wait_until_free_gb` で `MemAvailable` を待つため、通常は自動回復します
 
 ### 3D 生成（Step 3）は本プロジェクトの対象範囲外
 

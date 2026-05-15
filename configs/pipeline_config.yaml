@@ -56,17 +56,15 @@ models:
   vlm:
     base_url: "http://localhost:8001/v1"
     # model_name: vLLM に登録されるモデル識別子。
-    #   vLLM は起動時に渡したパスをそのままモデル名として登録するため、
-    #   チルダ（~/）は展開されず API リクエストが 404 になる。
-    #   必ずフルパスで指定すること。
-    #   PC 移行時は `curl http://localhost:8001/v1/models` で登録名を確認し、
-    #   その値をここに設定する。
-    #   例: "/home/<username>/models/Qwen3-VL-32B-Instruct"
-    model_name: "/home/ntt/models/Qwen3-VL-32B-Instruct"
+    #   scripts/start_vllm_server.sh で `--served-model-name qwen3-vl-32b` を渡し、
+    #   ファイルシステム上のパスとは独立した短い識別子を登録している。
+    #   PC 移行時もこの値は変更不要（モデルの設置場所のみ MODELS_DIR で差し替える）。
+    #   登録名を変更したい場合は SERVED_MODEL_NAME 環境変数とこの値を合わせて変えること。
+    model_name: "qwen3-vl-32b"
     temperature: 0.1
     max_tokens: 2048
-    # 起動コマンド（--max-model-len はメモリ状況に応じて調整）:
-    #   vllm serve ~/models/Qwen3-VL-32B-Instruct --dtype bfloat16 --port 8001 --max-model-len 16384
+    # 起動コマンドの実体は scripts/start_vllm_server.sh
+    #   （--gpu-memory-utilization は VLLM_GPU_UTIL 環境変数で上書き可能。デフォルト 0.85）
 
 # ---- T-1.2: プロンプト生成 ----
 prompt_generation:

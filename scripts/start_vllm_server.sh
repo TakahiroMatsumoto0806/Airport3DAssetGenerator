@@ -5,8 +5,12 @@
 #   bash scripts/start_vllm_server.sh
 #
 # 環境変数でカスタマイズ可能:
-#   MODELS_DIR   : モデルディレクトリ（デフォルト: ~/models）
-#   VLLM_PORT    : vLLM ポート番号（デフォルト: 8001）
+#   MODELS_DIR         : モデルディレクトリ（デフォルト: ~/models）
+#   VLLM_PORT          : vLLM ポート番号（デフォルト: 8001）
+#   SERVED_MODEL_NAME  : vLLM が登録する短い識別子（デフォルト: qwen3-vl-32b）
+#                        configs/pipeline_config.yaml の vlm.model_name と一致させる
+#   VLLM_GPU_UTIL      : GPU メモリ確保率（デフォルト: 0.85）
+#                        DGX Spark の統合メモリでは 0.90 だと page cache 残量次第で OOM
 
 set -euo pipefail
 
@@ -17,6 +21,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 MODELS_DIR="${MODELS_DIR:-${HOME}/models}"
 MODEL_PATH="${MODELS_DIR}/Qwen3-VL-32B-Instruct"
 VLLM_PORT="${VLLM_PORT:-8001}"
+SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-qwen3-vl-32b}"
+VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.85}"
 
 # ---- venv のアクティベート ----
 VENV="${PROJECT_ROOT}/.venv"
@@ -39,11 +45,12 @@ else
     echo "[INFO] モデル: ${MODEL_PATH}"
 fi
 
-echo "[INFO] vLLM サーバー起動: port=${VLLM_PORT}"
+echo "[INFO] vLLM サーバー起動: port=${VLLM_PORT}, served-model-name=${SERVED_MODEL_NAME}, gpu-util=${VLLM_GPU_UTIL}"
 
 exec vllm serve "${MODEL_PATH}" \
+    --served-model-name "${SERVED_MODEL_NAME}" \
     --dtype bfloat16 \
     --max-model-len 8192 \
-    --gpu-memory-utilization 0.90 \
+    --gpu-memory-utilization "${VLLM_GPU_UTIL}" \
     --port "${VLLM_PORT}" \
     "$@"

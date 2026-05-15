@@ -40,11 +40,18 @@ sudo apt-get install -y --no-install-recommends \
 log "=== Step 2: uv のインストール ==="
 if ! command -v uv &>/dev/null; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="${HOME}/.cargo/bin:${PATH}"
-    # シェルプロファイルに追記（重複を避ける）
-    grep -q 'cargo/bin' "${HOME}/.bashrc" \
-        || echo 'export PATH="${HOME}/.cargo/bin:${PATH}"' >> "${HOME}/.bashrc"
+    # 現行 uv インストーラは ~/.local/bin に置く。旧版互換で ~/.cargo/bin も探索する。
+    for candidate in "${HOME}/.local/bin" "${HOME}/.cargo/bin"; do
+        if [ -x "${candidate}/uv" ]; then
+            export PATH="${candidate}:${PATH}"
+            grep -q "${candidate}" "${HOME}/.bashrc" \
+                || echo "export PATH=\"${candidate}:\${PATH}\"" >> "${HOME}/.bashrc"
+            break
+        fi
+    done
 fi
+command -v uv >/dev/null \
+    || err "uv のインストール先が見つかりません（~/.local/bin および ~/.cargo/bin を確認してください）"
 uv --version
 
 # ---- 3. Python 3.11 仮想環境の作成 ----
@@ -54,10 +61,19 @@ uv venv .venv --python "${PYTHON_VERSION}"
 source .venv/bin/activate
 python --version
 
-# ---- 4. PyTorch (CUDA 12.4 / Blackwell 対応) のインストール ----
-log "=== Step 4: PyTorch (CUDA 12.4) のインストール ==="
-uv pip install torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu124
+# ---- 4. PyTorch (CUDA / Blackwell 対応) のインストール ----
+# aarch64 + CUDA 対応 wheel が提供されているのは cu129 系のみ（2026-05 時点）。
+# x86_64 + Blackwell には cu128 系を使用する。PyPI 既定の wheel は aarch64 だと
+# CPU 専用になるため、必ず専用 index 経由で導入する。
+log "=== Step 4: PyTorch のインストール ==="
+ARCH="$(uname -m)"
+if [ "${ARCH}" = "aarch64" ]; then
+    CUDA_INDEX="https://download.pytorch.org/whl/cu129"
+else
+    CUDA_INDEX="https://download.pytorch.org/whl/cu128"
+fi
+log "  CUDA index: ${CUDA_INDEX} (arch=${ARCH})"
+uv pip install torch torchvision torchaudio --index-url "${CUDA_INDEX}"
 
 # PyTorch インストール確認
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')" \

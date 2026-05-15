@@ -25,10 +25,16 @@ DGX Spark での標準的な使用例:
 """
 
 import argparse
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+# OSMesa（ヘッドレスレンダリング）を非対話シェルからも確実に有効化する。
+# .bashrc 経由の export は cron / subprocess / 自動化スクリプトから呼ぶ Python には
+# 届かないため、ここで明示的に設定する（既に値があれば尊重する）。
+os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
 
 # プロジェクトルートを sys.path に追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -49,13 +55,14 @@ def check_vllm_server(base_url: str = "http://localhost:8001/v1", timeout: int =
         return False
 
 
-def start_vllm_server(script_path: str = "scripts/start_vllm_server.sh", max_wait: int = 900) -> bool:
+def start_vllm_server(script_path: str = "scripts/start_vllm_server.sh", max_wait: int = 1200) -> bool:
     """vLLM サーバーを起動
 
     Args:
         script_path: vLLM起動スクリプトのパス
-        max_wait: 最大待機時間（秒、デフォルト: 900秒 = 15分）
-                  Qwen3-VL-32B (実使用 ~100GB) の起動には 600〜700秒かかることがある。
+        max_wait: 最大待機時間（秒、デフォルト: 1200秒 = 20分）
+                  GB10 + Qwen3-VL-32B のフルロード（14 シャード + CUDA グラフ生成）は
+                  NVMe キャッシュ次第で 500〜900秒程度変動するため余裕を取る。
     """
     logger.info(f"vLLM サーバーを起動中（最大待機時間: {max_wait}秒）...")
     try:

@@ -13,20 +13,21 @@ license = { text = "MIT" }
 dependencies = [
     # ---- 画像生成 ----
     "diffusers>=0.30.0",
-    "transformers>=4.44.0",
+    "transformers>=5.0.0",     # vllm 0.20+ が transformers 5.x を要求
     "accelerate>=0.33.0",
     "sentencepiece>=0.2.0",
     "tokenizers>=0.19.0",
 
-    # ---- PyTorch (Blackwell / CUDA 12.x 対応は setup_environment.sh でインストール) ----
-    # pip install torch --index-url https://download.pytorch.org/whl/cu124
-    # ここでは最低バージョン宣言のみ
-    "torch>=2.4.0",
-    "torchvision>=0.19.0",
+    # ---- PyTorch (Blackwell / CUDA 対応は setup_environment.sh でインストール) ----
+    # aarch64 (DGX Spark): cu129 系 / x86_64 + Blackwell: cu128 系
+    # uname -m で自動分岐するので、ここでは最低バージョン宣言のみ。
+    "torch>=2.8.0",            # aarch64 cu129 wheel の最低バージョン
+    "torchvision>=0.23.0",     # torch 2.8 系と整合
 
     # ---- vLLM (Qwen3-VL-32B-Instruct サーバー) ----
     # モデルID: Qwen/Qwen3-VL-32B-Instruct
-    "vllm>=0.6.0",
+    # 0.20.2 以上で aarch64 wheel 提供 + Qwen3VLForConditionalGeneration の native 実装が安定。
+    "vllm>=0.20.2",
     "openai>=1.40.0",          # vLLM OpenAI互換クライアント
 
     # ---- 3D 生成 (Step 3) ----
@@ -40,7 +41,7 @@ dependencies = [
 
     # ---- レンダリング (headless) ----
     "pyrender>=0.1.45",
-    "PyOpenGL>=3.1.0",
+    "PyOpenGL>=3.1.7",         # OSMesaCreateContextAttribs が 3.1.7 以降で利用可能
     "Pillow>=10.0.0",
     "imageio>=2.34.0",
 
